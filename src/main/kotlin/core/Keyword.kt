@@ -14,7 +14,8 @@ enum class Keyword(val value: String, val isType: Boolean = false) {
     PUBLIC("public"),//
     CLASS("class"),//
     AUTO("auto"),//
-    CONST("const", true),//
+    CONST("const",),//
+    VOLATILE("volatile"),//
     CATCH("catch"),
     CHAR("char", true),//
     DECLTYPE("decltype"),
@@ -43,4 +44,9 @@ enum class Keyword(val value: String, val isType: Boolean = false) {
     VOID("void", true),//
     UNSIGNED("unsigned", true),//
     SIGNED("signed", true),//
+    NOEXCEPT("noexcept"),
+    CHAR8_T("char8_t", isType = true),
+    CHAR16_T("char16_t", isType = true),
+    CHAR32_T("char32_t", isType = true),
+    WCHAR_T("wchar_t", isType = true),
 }

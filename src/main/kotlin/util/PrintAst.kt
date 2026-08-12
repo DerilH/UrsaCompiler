@@ -2,38 +2,29 @@ package org.derilh.util
 
 import org.derilh.ast.*
 
-private fun ASTNode.label(): String =
-    when (this) {
-        is PrimitiveTypeNode -> "PrimitiveTypeNode(kind=$kind, isUnsigned=$isUnsigned, isShort=$isShort, isLong=$isLong, isLongLong=$isLongLong, isConst=$isConst)"
-        is IdentifierWithNamespaceNode -> "IdentifierWithNamespaceNode(name=$name), isGlobal=$isGlobal"
-        is IdentifierNode -> "IdentifierNode(name=$name)"
-        is DeclaredTypeNode -> "BaseTypeNode"
-        is AutoTypeNode -> "AutoTypeNode"
-        is ParameterNode -> "ParameterNode"
-        is CompoundStatementNode -> "BlockNode"
-        is MethodDeclarationNode -> "MethodNode"
-        is BinaryExpressionNode -> "BinaryExpressionNode(operator=${operator.value})"
-        is ClassDeclarationNode -> "ClassNode"
-        is IfStatementNode -> "IfStatementNode"
-        is ForStatementNode -> "ForStatementNode"
-        is WhileStatementNode -> "WhileStatementNode"
-        is DoStatementNode -> "DoStatementNode"
-        is AccessDeclarationNode -> "AccessDeclarationNode(access=${access.value})"
-        is UnaryExpressionNode -> "UnaryExpressionNode(operator=${operator.value}, isPrefix = ${isPrefix})"
-        is NewExpressionNode -> "NewExpressionNode"
-        is SizeofExpressionNode -> "SizeofExpressionNode"
-        is ArrayTypeNode -> "ArrayTypeNode"
-        is PointerTypeNode -> "PointerTypeNode(isConst=${isConst})"
-        is ReferenceTypeNode -> "ReferenceTypeNode(isConst=${isConst})"
-        is RValueReferenceTypeNode -> "RValueReferenceTypeNode"
-        is RootNode -> "RootNode"
-        else -> this.javaClass.simpleName
-    }
+private const val ANSI_RESET = "\u001B[0m"
+private const val ANSI_RED = "\u001B[31m"
+private const val ANSI_GREEN = "\u001B[32m"
+private const val ANSI_YELLOW = "\u001B[33m"
+private const val ANSI_BLUE = "\u001B[34m"
+private const val ANSI_CYAN = "\u001B[36m"
+private const val ANSI_PURPLE = "\u001B[35m"
 
+private fun ASTNode.color(): String =
+    when (this) {
+        is RootNode -> ANSI_PURPLE
+        is DeclarationNode -> ANSI_BLUE
+        is StatementNode -> ANSI_CYAN
+        is ExpressionNode -> ANSI_YELLOW
+        is TypeNode -> ANSI_GREEN
+        is IdentifierNode -> ANSI_RED
+        else -> ANSI_RESET
+    }
 
 fun ASTNode.printTree(prefix: String = "", isLast: Boolean = true) {
     val connector = if (isLast) "└── " else "├── "
-    println(prefix + connector + label())
+    val nodeColor = color()
+    println(prefix + connector + nodeColor + this.toString() + ANSI_RESET)
 
     val childPrefix = prefix + if (isLast) "    " else "│   "
     children.forEachIndexed { index, child ->
