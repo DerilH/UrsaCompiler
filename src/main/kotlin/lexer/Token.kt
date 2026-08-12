@@ -1,9 +1,12 @@
 package org.derilh.lexer
 
+import org.derilh.core.CharPrefix
 import org.derilh.core.Keyword
 import org.derilh.core.Operator
+import org.derilh.core.Radix
 import org.derilh.core.Symbol
-import org.derilh.lexer.KeywordToken.Companion.BY_NAME
+import org.derilh.util.Util
+import java.math.BigInteger
 
 sealed class Token(val location: SourceLocation) {
     open infix fun isA(other: Any): Boolean = false
@@ -47,33 +50,28 @@ class BooleanToken(value: Boolean, location: SourceLocation) : ValueToken<Boolea
         return "BooleanVal('$value')"
     }
 }
-class IntToken(value: Int, location: SourceLocation) : ValueToken<Int>(value, location) {
+
+class IntToken(value: BigInteger, val radix: Radix, val isUnsigned: Boolean, val isLong: Boolean, val isLongLong: Boolean, val isSizeT: Boolean, location: SourceLocation) : ValueToken<BigInteger>(value, location) {
     override fun toString(): String {
         return "IntVal('$value')"
     }
 }
 
-class DoubleToken(value: Double, location: SourceLocation) : ValueToken<Double>(value, location) {
+class FloatToken(value: String, val isDouble: Boolean, val isLong: Boolean, location: SourceLocation) : ValueToken<String>(value, location) {
     override fun toString(): String {
         return "DoubleVal('$value')"
     }
 }
 
-class FloatToken(value: Float, location: SourceLocation) : ValueToken<Float>(value, location) {
+class CharToken(value: IntArray, val prefix: CharPrefix, location: SourceLocation) : ValueToken<IntArray>(value, location) {
     override fun toString(): String {
-        return "FloatVal('$value')"
+        return "CharVal('${Util.codePointsToUtf16Filtered(value)}')"
     }
 }
 
-class CharToken(value: Char, location: SourceLocation) : ValueToken<Char>(value, location) {
+class StringLiteralToken(value: IntArray, val prefix: CharPrefix, location: SourceLocation) : ValueToken<IntArray>(value, location) {
     override fun toString(): String {
-        return "CharVal('$value')"
-    }
-}
-
-class LiteralToken(value: String, location: SourceLocation) : ValueToken<String>(value, location) {
-    override fun toString(): String {
-        return "StringVal('$value')"
+        return "StringVal('${Util.codePointsToUtf16Filtered(value)}')"
     }
 }
 

@@ -1,4 +1,4 @@
-package org.derilh
+package org.derilh.exceptions
 
 import org.derilh.lexer.Token
 
