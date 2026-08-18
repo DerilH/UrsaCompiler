@@ -6,7 +6,7 @@ import org.derilh.ast.PrimitiveTypeNode
 import org.derilh.core.CharPrefix
 import org.derilh.core.Constants
 import org.derilh.core.PrimitiveTypeKind
-import org.derilh.core.toType
+import org.derilh.core.toPrimitiveKind
 import org.derilh.exceptions.SemanticException
 import org.derilh.target.TargetInfo
 import org.derilh.util.Util
@@ -34,19 +34,16 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
             codePoints
         }
 
-        node.numericValue = calculateNumericValue(codePoints, node.prefix, ctx.target)
+        node.numericValue = calculateNumericValue(codePoints, node.prefix, ctx)
 
         val kind = deduceCharKind(node)
 
-        node.type = PrimitiveTypeNode(
-            kind = kind,
-            isConst = false,
-            isVolatile = false
-        )
+        node.resolvedType = ctx.types.getPrimitive(kind)
         return node
     }
 
-    private fun calculateNumericValue(text: IntArray, prefix: CharPrefix, target: TargetInfo): ULong {
+    private fun calculateNumericValue(text: IntArray, prefix: CharPrefix, ctx: AnalyzeContext): ULong {
+        val target = ctx.target
         var numericValue = 0UL
 
         val effectivePrefix = if (prefix == CharPrefix.WIDE) {
@@ -79,11 +76,13 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
             val uCodePoint = codePoint.toUInt().toULong()
 
             if (uCodePoint > maxCharVal) {
-                throw SemanticException("Character value $codePoint is out of range for prefix $prefix (max: $maxCharVal)", null)
+                ctx.error("Character value $codePoint is out of range for prefix $prefix (max: $maxCharVal)", null)
+                return 0UL;
             }
 
             if (accumulatedBits + bitWidth > 64) {
-                throw SemanticException("Character literal bit width exceeds 64-bit storage limit", null)
+                ctx.error("Character literal bit width exceeds 64-bit storage limit", null)
+                return 0UL;
             }
 
             numericValue = (numericValue shl bitWidth) or uCodePoint
@@ -98,6 +97,6 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
             return PrimitiveTypeKind.INT
         }
 
-        return node.prefix.toType()
+        return node.prefix.toPrimitiveKind()
     }
 }

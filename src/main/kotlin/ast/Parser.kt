@@ -1,11 +1,14 @@
 package org.derilh.ast
 
+import org.derilh.core.CastMethod
 import org.derilh.core.ClassType
 import org.derilh.exceptions.SyntaxException
 import org.derilh.core.Keyword
+import org.derilh.core.MethodQualifiers
 import org.derilh.core.Operator
 import org.derilh.core.Precedence
 import org.derilh.core.PrimitiveTypeKind
+import org.derilh.core.RefQualifier
 import org.derilh.core.Symbol
 import org.derilh.lexer.BooleanToken
 import org.derilh.lexer.CharToken
@@ -16,25 +19,29 @@ import org.derilh.lexer.IntToken
 import org.derilh.lexer.KeywordToken
 import org.derilh.lexer.StringLiteralToken
 import org.derilh.lexer.OperatorToken
+import org.derilh.lexer.SourceLocation
 import org.derilh.lexer.SymbolToken
 import org.derilh.lexer.Token
 import org.derilh.lexer.ValueToken
-import javax.swing.plaf.ColorUIResource
-import kotlin.math.abs
 
 class Parser(var tokens: List<Token>) {
     private var position: Int = 0
     private var rootStatements = mutableListOf<ASTNode>()
     private var declarations =
         hashSetOf<IdentifierNode>(
-            IdentifierWithNamespaceNode(
-                listOf(IdentifierNode("std")),
+            QualifiedIdentifierNode(
+                listOf(IdentifierNode("std",SourceLocation.ZERO)),
                 "string",
-                isGlobal = false
+                isGlobal = false,
+                SourceLocation.ZERO
             )
         )
 
-    fun parseRoot(): RootNode {
+    fun parse(): RootNode {
+        return RootNode(parseCompound().statements);
+    }
+
+    private fun parseCompound(): CompoundStatementNode {
         rootStatements = mutableListOf()
         while (position < tokens.size) {
             val statement = tryParseStatement();
@@ -44,7 +51,7 @@ class Parser(var tokens: List<Token>) {
             rootStatements += statement
         }
 
-        return RootNode(rootStatements)
+        return CompoundStatementNode(rootStatements)
     }
 
     private fun currentToken(): Token =
@@ -69,6 +76,7 @@ class Parser(var tokens: List<Token>) {
         var expression = when {
             current is IdToken || current isA Operator.NAMESPACE -> IdExpressionNode(parseIdentifier())
             current isA Keyword.THIS -> ThisExpressionNode().also { position++ }
+            current isA Keyword.NULLPTR -> NullptrLiteral.also { position++ }
             current is ValueToken<*> -> parseValueExpression()
             current is OperatorToken && current.value.isUnary -> parsePrefixUnaryExpression()
             current isA Keyword.NEW -> parseNewExpression()
@@ -113,7 +121,7 @@ class Parser(var tokens: List<Token>) {
             val declarator = parseDeclarator(type, true)
             consume(Symbol.RPAREN)
             val expression = parseExpression(Precedence.UNARY)
-            return TypeCastExpressionNode(CastType.CSTYLE, true, declarator, expression)
+            return TypeCastExpressionNode(CastMethod.CSTYLE, true, declarator, expression)
         } catch (e: Exception) {
         }
         position = lastPos
@@ -718,17 +726,15 @@ class Parser(var tokens: List<Token>) {
         }
 
         return when (typeId) {
-//            is KeywordToken if typeId isA Keyword.AUTO -> AutoTypeNode(
-//                isConst,
-//                isVolatile
-//            ).also { assertNoPrimitives() }
+            is KeywordToken if typeId isA Keyword.AUTO -> AutoTypeNode(
+                isConst,
+                isVolatile
+            ).also { assertNoPrimitives() }
 
 //            is KeywordToken if typeId isA Keyword.DECLTYPE -> DeclTypeTypeNode(
 //                isConst,
 //                isVolatile
 //            ).also { assertNoPrimitives() }
-            is KeywordToken if typeId isA Keyword.AUTO -> TODO("Auto type is not supported yet")
-
             is KeywordToken if typeId isA Keyword.DECLTYPE -> TODO("Decltype is not supported yet")
 
 
@@ -830,7 +836,7 @@ class Parser(var tokens: List<Token>) {
         return PointerTypeNode(baseType, isConst = constAndVol.first, isVolatile = constAndVol.second)
     }
 
-    private fun tryParseMemberPointerType(baseType: TypeNode): MemberPointerType? {
+    private fun tryParseMemberPointerType(baseType: TypeNode): MemberPointerTypeNode? {
         val lastPos = position
         val namespace = mutableListOf<IdentifierNode>()
 
@@ -868,8 +874,8 @@ class Parser(var tokens: List<Token>) {
                 classIdNode = if (namespace.isEmpty() && !isGlobal) {
                     node
                 } else {
-                    IdentifierWithNamespaceNode(
-                        namespace = namespace,
+                    QualifiedIdentifierNode(
+                        qualifiers = namespace,
                         name = node.name,
                         isGlobal = isGlobal
                     )
@@ -879,7 +885,7 @@ class Parser(var tokens: List<Token>) {
         }
 
         if (isPointer && classIdNode != null) {
-            return MemberPointerType(classIdNode, baseType, isConst, isVolatile)
+            return MemberPointerTypeNode(classIdNode, baseType, isConst, isVolatile)
         } else {
             position = lastPos
             return null
@@ -943,7 +949,7 @@ class Parser(var tokens: List<Token>) {
         return Pair(isConst, isVolatile)
     }
 
-    private fun parseFunctionQualifiers(): FunctionQualifiers {
+    private fun parseFunctionQualifiers(): MethodQualifiers {
         var isConst = false
         var isVolatile = false
         var refQualifier = RefQualifier.NONE
@@ -982,7 +988,7 @@ class Parser(var tokens: List<Token>) {
             throw SyntaxException("ref-qualifiers must appear BEFORE 'noexcept'", token, position)
         }
 
-        return FunctionQualifiers(isConst, isVolatile, refQualifier, isNoexcept)
+        return MethodQualifiers(isConst, isVolatile, refQualifier, isNoexcept)
     }
 
     private fun parseFunctionType(type: TypeNode): FunctionTypeNode {
@@ -1021,8 +1027,8 @@ class Parser(var tokens: List<Token>) {
                 return if (namespace.isEmpty() && !isGlobal) {
                     node
                 } else {
-                    IdentifierWithNamespaceNode(
-                        namespace = namespace,
+                    QualifiedIdentifierNode(
+                        qualifiers = namespace,
                         name = node.name,
                         isGlobal = isGlobal
                     )
@@ -1060,7 +1066,8 @@ class Parser(var tokens: List<Token>) {
             return null
         }
 
-        if (declaratorNode.type !is FunctionTypeNode) throw SyntaxException(
+        val declType = declaratorNode.type;
+        if (declType !is FunctionTypeNode) throw SyntaxException(
             "Invalid constructor declaration provided",
             currentToken(),
             position
@@ -1068,7 +1075,7 @@ class Parser(var tokens: List<Token>) {
 
         val memberInitializers = if (currentToken() isA Symbol.COLON) parseMemberInitializerList() else listOf()
         val body = parseBlock()
-        return ConstructorDeclarationNode(declaratorNode.type, memberInitializers, body);
+        return ConstructorDeclarationNode(declType, memberInitializers, body);
     }
 
     private fun parseFunctionDeclaration(
@@ -1089,11 +1096,11 @@ class Parser(var tokens: List<Token>) {
             position
         );
 
-        val body = parseBlock();
+        val body = FunctionBodyNode(parseBlock().statements);
         return FunctionDeclarationNode(declarator, body).also { parseSeparator(false) }
     }
 
-    private fun parseBlock(): CompoundStatementNode {
+    private fun parseBlock(): AnonymousBlock {
         val token = currentToken()
         if (token isA Symbol.BEGIN) {
             position++
@@ -1112,7 +1119,7 @@ class Parser(var tokens: List<Token>) {
             }
         }
         position++
-        return CompoundStatementNode(nodes)
+        return AnonymousBlock(nodes)
     }
 
     private fun tryParseStmtOrSingleExpression(): StatementNode {
@@ -1159,8 +1166,7 @@ class Parser(var tokens: List<Token>) {
             }
 
             token isA Keyword.CLASS || token isA Keyword.STRUCT -> parseClassDeclaration()
-
-
+            token isA Keyword.NAMESPACE -> parseNamespaceDeclaration()
             else -> EmptyStatementNode
         }
     }
@@ -1190,6 +1196,19 @@ class Parser(var tokens: List<Token>) {
         } else false
     }
 
+    private fun consume(keyword: Keyword, strict: Boolean = true): Boolean {
+        if (strict && currentToken() notA keyword) throw SyntaxException(
+            "Expected keyword '$keyword'",
+            currentToken(),
+            position
+        )
+
+        return if (currentToken() isA keyword) {
+            position++
+            true
+        } else false
+    }
+
     private fun parseSeparator(strict: Boolean = true) {
         if (strict && currentToken() notA Symbol.SEPARATOR) throw SyntaxException(
             "Expected separator",
@@ -1199,13 +1218,8 @@ class Parser(var tokens: List<Token>) {
         if (currentToken() isA Symbol.SEPARATOR) position++
     }
 
-    private fun parseClassBody(classId: IdentifierNode?): CompoundStatementNode {
-        if (currentToken() notA Symbol.BEGIN) throw SyntaxException(
-            "Begin symbol expected for code block",
-            currentToken(),
-            position
-        )
-        position++
+    private fun parseClassBody(classId: IdentifierNode?): ClassBodyNode {
+        consume(Symbol.BEGIN)
 
         val nodes = mutableListOf<ASTNode>()
         while (currentToken() notA Symbol.END) {
@@ -1234,26 +1248,7 @@ class Parser(var tokens: List<Token>) {
             }
         }
         position++
-        return CompoundStatementNode(nodes)
-
-//        var beginCount = 1;
-//        while (true) {
-//            val token = currentToken()
-//
-//            if(t)
-//
-//            if (token isA Symbol.END) {
-//                beginCount -= 1
-//                if (beginCount <= 0) {
-//                    break
-//                }
-//            } else if (token isA Symbol.BEGIN) {
-//                beginCount++
-//            }
-//            position++
-//        }
-
-        return CompoundStatementNode(emptyList())
+        return ClassBodyNode(nodes)
     }
 
     private fun parseParameters(): List<ParameterNode> {
@@ -1298,6 +1293,19 @@ class Parser(var tokens: List<Token>) {
         throw SyntaxException("Invalid identifier provided ", currentToken(), position)
     }
 
+    private fun parseNamespaceDeclaration(location: SourceLocation): NamespaceDeclarationNode {
+        consume(Keyword.NAMESPACE)
+
+        var identifier: IdentifierNode? = null;
+        if (currentToken() notA Symbol.BEGIN) {
+            identifier = parseIdentifier()
+        }
+        val body = parseCompound()
+        val decl = NamespaceDeclarationNode(identifier, body)
+        parseSeparator(false)
+        return decl;
+    }
+
     private fun parseClassDeclaration(): DeclarationNode {
         val classType = resolveClassType(currentToken());
         position++
@@ -1308,7 +1316,6 @@ class Parser(var tokens: List<Token>) {
         }
         val body = parseClassBody(identifier)
         val decl = ClassDeclarationNode(identifier, classType, body)
-
         parseSeparator(false)
         return decl;
     }

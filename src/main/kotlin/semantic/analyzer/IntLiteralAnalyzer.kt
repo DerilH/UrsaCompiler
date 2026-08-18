@@ -8,14 +8,14 @@ import org.derilh.core.Radix
 import org.derilh.exceptions.SemanticException
 import org.derilh.target.TargetInfo
 
-private class IntLiteralAnalyzer : NodeAnalyzer<IntLiteralNode> {
+class IntLiteralAnalyzer : NodeAnalyzer<IntLiteralNode> {
     override fun analyze(node: IntLiteralNode, ctx: AnalyzeContext): ASTNode {
         val value = node.value
         val target = ctx.target
 
         if (node.isSizeT) {
             val targetIntType = if (node.isUnsigned) target.types.sizeType else target.types.ptrDiffType
-            node.type = PrimitiveTypeNode(targetIntType)
+            node.resolvedType = ctx.types.getPrimitive(targetIntType)
             return node
         }
 
@@ -59,7 +59,7 @@ private class IntLiteralAnalyzer : NodeAnalyzer<IntLiteralNode> {
             }
         }
 
-        node.type = PrimitiveTypeNode(kind)
+        node.resolvedType = ctx.types.getPrimitive(kind)
         return node;
     }
 

@@ -31,7 +31,7 @@ class ParseCommand : CliktCommand(
         val tokens = lexer.tokenize(code)
 
         val parser = Parser(tokens)
-        val ast = parser.parseRoot();
+        val ast = parser.parse();
         if(output != null) {
             TODO("Ast output to file not supported yet")
         } else {

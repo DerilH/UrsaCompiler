@@ -46,13 +46,10 @@ enum class Operator(
     BIT_AND_EQ("&=", Precedence.ASSIGNMENT, isBinary = true),
     BIT_XOR_EQ("^=", Precedence.ASSIGNMENT, isBinary = true),
     BIT_OR_EQ("|=", Precedence.ASSIGNMENT, isBinary = true),
-
-    OR("||", Precedence.LOGICAL_OR, isBinary = true),
-    AND("&&", Precedence.LOGICAL_AND, isBinary = true),
-
     BIT_OR("|", Precedence.BITWISE_OR, isBinary = true),
     BIT_XOR("^", Precedence.BITWISE_XOR, isBinary = true),
-
+    OR("||", Precedence.LOGICAL_OR, isBinary = true),
+    AND("&&", Precedence.LOGICAL_AND, isBinary = true),
     EQUAL("==", Precedence.EQUALITY, isBinary = true),
     NOT_EQ("!=", Precedence.EQUALITY, isBinary = true),
     LESS("<", Precedence.RELATIONAL, isBinary = true),

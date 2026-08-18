@@ -59,7 +59,7 @@ class IntToken(value: BigInteger, val radix: Radix, val isUnsigned: Boolean, val
 
 class FloatToken(value: String, val isDouble: Boolean, val isLong: Boolean, location: SourceLocation) : ValueToken<String>(value, location) {
     override fun toString(): String {
-        return "DoubleVal('$value')"
+        return "FloatVal('$value')"
     }
 }
 

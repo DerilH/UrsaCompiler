@@ -64,6 +64,7 @@ class Lexer {
             try {
                 val token =
                     if (isFloat || isDouble) {
+                        value = if(!value.last().isDigit()) value.dropLast(1) else value
                         FloatToken(value, isDouble, isLong, startLoc())
                     } else {
                         if (radix == Radix.HEXADECIMAL || radix == Radix.BINARY) {

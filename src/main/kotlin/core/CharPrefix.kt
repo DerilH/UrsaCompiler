@@ -8,7 +8,7 @@ enum class CharPrefix(val prefix: String) {
     WIDE("L")    // L'a'  -> wchar_t
 }
 
-fun CharPrefix.toType(): PrimitiveTypeKind {
+fun CharPrefix.toPrimitiveKind(): PrimitiveTypeKind {
     return when (this) {
         CharPrefix.NONE  -> PrimitiveTypeKind.CHAR
         CharPrefix.UTF8  -> PrimitiveTypeKind.CHAR8_T

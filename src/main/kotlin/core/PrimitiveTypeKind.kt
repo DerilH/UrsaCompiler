@@ -1,29 +1,30 @@
 package org.derilh.core
 
-enum class PrimitiveTypeKind(val isInt: Boolean = false, val isUnsigned: Boolean = false) {
+enum class PrimitiveTypeKind(val isInt: Boolean = false, val isFloat: Boolean = false, val isUnsigned: Boolean = false, val intRank: Int = -1) {
     VOID,
-    BOOL,
+    NULLPTR,
+    BOOL(intRank = 1, isInt = true),
 
-    CHAR,
-    SIGNED_CHAR,
-    UNSIGNED_CHAR(isUnsigned = true),
+    CHAR(intRank = 2, isInt = true),
+    SIGNED_CHAR(intRank = 2, isInt = true),
+    UNSIGNED_CHAR(intRank = 2, isUnsigned = true, isInt = true),
 
-    CHAR8_T,
-    CHAR16_T,
-    CHAR32_T,
-    WCHAR_T,
-    SHORT(isInt = true),
-    UNSIGNED_SHORT(isInt = true, isUnsigned = true),
-    INT(isInt = true),
-    UNSIGNED_INT(isInt = true, isUnsigned = true),
-    LONG(isInt = true),
-    UNSIGNED_LONG(isInt = true, isUnsigned = true),
-    LONG_LONG(isInt = true),
-    UNSIGNED_LONG_LONG(isInt = true, isUnsigned = true),
+    CHAR8_T(isInt = true),
+    CHAR16_T(isInt = true),
+    CHAR32_T(isInt = true),
+    WCHAR_T(isInt = true),
+    SHORT(intRank = 3, isInt = true),
+    UNSIGNED_SHORT(intRank = 3, isInt = true, isUnsigned = true),
+    INT(intRank = 4, isInt = true),
+    UNSIGNED_INT(intRank = 4, isInt = true, isUnsigned = true),
+    LONG(intRank = 5, isInt = true),
+    UNSIGNED_LONG(intRank = 5, isInt = true, isUnsigned = true),
+    LONG_LONG(intRank = 6, isInt = true),
+    UNSIGNED_LONG_LONG(intRank = 6, isInt = true, isUnsigned = true),
 
-    FLOAT,
-    DOUBLE,
-    LONG_DOUBLE
+    FLOAT(isFloat = true),
+    DOUBLE(isFloat = true),
+    LONG_DOUBLE(isFloat = true),
 }
 
 data class TypeInfo(

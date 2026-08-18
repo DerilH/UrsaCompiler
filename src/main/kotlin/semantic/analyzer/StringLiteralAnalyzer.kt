@@ -6,11 +6,11 @@ import org.derilh.ast.IntLiteralNode
 import org.derilh.ast.PrimitiveTypeNode
 import org.derilh.ast.StringConcatExpressionNode
 import org.derilh.ast.StringLiteralNode
-import org.derilh.ast.TypeNode
 import org.derilh.core.CharPrefix
 import org.derilh.core.Constants
-import org.derilh.core.toType
+import org.derilh.core.toPrimitiveKind
 import org.derilh.exceptions.SemanticException
+import org.derilh.semantic.SemanticType
 import org.derilh.target.TargetInfo
 import org.derilh.util.Util
 
@@ -51,7 +51,7 @@ class StringLiteralAnalyzer : NodeAnalyzer<StringLiteralNode> {
             }
         }
 
-        node.type = determineStringType(prefix, node.value.size, ctx.target)
+        node.resolvedType = determineStringType(prefix, node.value.size.toLong(), ctx)
         return node;
     }
 
@@ -85,11 +85,11 @@ class StringConcatAnalyzer : NodeAnalyzer<StringConcatExpressionNode> {
         }
 
         concatArray[concatArray.size - 1] = 0
-        val type = determineStringType(prefix, concatArray.size, ctx.target)
-        return StringLiteralNode(concatArray, prefix).also { it.type = type }
+        val type = determineStringType(prefix, concatArray.size.toLong(), ctx)
+        return StringLiteralNode(concatArray, prefix).also { it.resolvedType = type }
     }
 }
 
-private fun determineStringType(prefix: CharPrefix, length: Int, target: TargetInfo): TypeNode {
-    return ArrayTypeNode(elementType = PrimitiveTypeNode(prefix.toType(), isConst = true), sizeExpression = IntLiteralNode.constantValue(length))
+private fun determineStringType(prefix: CharPrefix, length: Long, ctx: AnalyzeContext): SemanticType {
+    return ctx.types.getArray(elementType = ctx.types.getPrimitive(kind = prefix.toPrimitiveKind(),isConst = true, isVolatile = false), size = length)
 }

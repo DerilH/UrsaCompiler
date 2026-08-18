@@ -4,26 +4,24 @@ import org.derilh.ast.ASTNode
 import org.derilh.ast.FloatLiteralNode
 import org.derilh.ast.PrimitiveTypeNode
 import org.derilh.core.PrimitiveTypeKind
-import org.derilh.exceptions.SemanticException
 import java.math.BigDecimal
 
-private class FloatLiteralAnalyzer : NodeAnalyzer<FloatLiteralNode> {
+class FloatLiteralAnalyzer : NodeAnalyzer<FloatLiteralNode> {
     override fun analyze(node: FloatLiteralNode, ctx: AnalyzeContext): ASTNode {
         val kind = when {
             node.isDouble && node.isLong -> PrimitiveTypeKind.LONG_DOUBLE
             node.isDouble -> PrimitiveTypeKind.DOUBLE
             !node.isDouble -> PrimitiveTypeKind.FLOAT
-            else -> throw SemanticException("Invalid float provided",node)
+            else -> {
+                ctx.error("Invalid float suffixes provided", node)
+                return node
+            }
         }
 
         val rawString = node.value
         validateFloatRange(rawString, kind, ctx, node)
 
-        node.type = PrimitiveTypeNode(
-            kind = kind,
-            isConst = false,
-            isVolatile = false
-        )
+        node.resolvedType = ctx.types.getPrimitive(kind)
         return node
     }
     private fun validateFloatRange(
@@ -59,7 +57,7 @@ private class FloatLiteralAnalyzer : NodeAnalyzer<FloatLiteralNode> {
                 else -> {}
             }
         } catch (e: NumberFormatException) {
-            throw SemanticException("Invalid floating-point literal format '$rawText'", node)
+            ctx.error("Invalid floating-point literal format '$rawText'", node)
         }
     }
 }

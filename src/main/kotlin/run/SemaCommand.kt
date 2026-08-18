@@ -39,7 +39,7 @@ class SemaCommand : CliktCommand(
         val tokens = lexer.tokenize(code)
 
         val parser = Parser(tokens)
-        val ast = parser.parseRoot();
+        val ast = parser.parse();
 
 
         val targetInfo = when(target) {

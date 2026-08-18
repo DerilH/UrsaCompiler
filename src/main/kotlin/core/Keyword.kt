@@ -32,7 +32,7 @@ enum class Keyword(val value: String, val isType: Boolean = false) {
     BOOL("bool", true),//
     INT("int", true),//
     LONG("long", true),//
-    NAMESPACE("namespace"),
+    NAMESPACE("namespace"), //
     NEW("new"), //
     NULLPTR("nullptr"),
     SHORT("short", true), //
