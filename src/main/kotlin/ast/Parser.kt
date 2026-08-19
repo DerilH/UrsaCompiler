@@ -30,18 +30,20 @@ class Parser(var tokens: List<Token>) {
     private var declarations =
         hashSetOf<IdentifierNode>(
             QualifiedIdentifierNode(
-                listOf(IdentifierNode("std",SourceLocation.ZERO)),
+                listOf(IdentifierNode("std", SourceLocation.EXPORTED)),
                 "string",
                 isGlobal = false,
-                SourceLocation.ZERO
+                SourceLocation.EXPORTED
             )
         )
 
     fun parse(): RootNode {
-        return RootNode(parseCompound().statements);
+        val location = currentToken().location
+        return RootNode(parseCompound().statements, location);
     }
 
     private fun parseCompound(): CompoundStatementNode {
+        val location = currentToken().location
         rootStatements = mutableListOf()
         while (position < tokens.size) {
             val statement = tryParseStatement();
@@ -51,7 +53,7 @@ class Parser(var tokens: List<Token>) {
             rootStatements += statement
         }
 
-        return CompoundStatementNode(rootStatements)
+        return CompoundStatementNode(rootStatements, location)
     }
 
     private fun currentToken(): Token =
@@ -72,11 +74,12 @@ class Parser(var tokens: List<Token>) {
     }
 
     internal fun parseExpression(precedence: Precedence = Precedence.LOWEST): ExpressionNode {
+        val location = currentToken().location
         var current = currentToken();
         var expression = when {
-            current is IdToken || current isA Operator.NAMESPACE -> IdExpressionNode(parseIdentifier())
-            current isA Keyword.THIS -> ThisExpressionNode().also { position++ }
-            current isA Keyword.NULLPTR -> NullptrLiteral.also { position++ }
+            current is IdToken || current isA Operator.NAMESPACE -> IdExpressionNode(parseIdentifier(), location)
+            current isA Keyword.THIS -> ThisExpressionNode(location).also { position++ }
+            current isA Keyword.NULLPTR -> NullptrLiteralNode(location).also { position++ }
             current is ValueToken<*> -> parseValueExpression()
             current is OperatorToken && current.value.isUnary -> parsePrefixUnaryExpression()
             current isA Keyword.NEW -> parseNewExpression()
@@ -89,7 +92,7 @@ class Parser(var tokens: List<Token>) {
                         val list = parseExpressionList()
                         consume(Symbol.RPAREN)
                         if (list.size == 1) list.first()
-                        else CommaExpressionNode(list)
+                        else CommaExpressionNode(list, location)
                     }
             }
 
@@ -115,13 +118,14 @@ class Parser(var tokens: List<Token>) {
 
     private fun tryParseCStyleCast(): TypeCastExpressionNode? {
         val lastPos = position
+        val location = currentToken().location
         try {
             consume(Symbol.LPAREN)
             val type = parseType();
             val declarator = parseDeclarator(type, true)
             consume(Symbol.RPAREN)
             val expression = parseExpression(Precedence.UNARY)
-            return TypeCastExpressionNode(CastMethod.CSTYLE, true, declarator, expression)
+            return TypeCastExpressionNode(CastMethod.CSTYLE, true, declarator, expression, location)
         } catch (e: Exception) {
         }
         position = lastPos
@@ -129,6 +133,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseIfStatement(): IfStatementNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.IF) throw SyntaxException(
             "Invalid if expression provided, expected if keyword",
             currentToken(),
@@ -148,30 +153,33 @@ class Parser(var tokens: List<Token>) {
                 position
             )
         }
-        return IfStatementNode(condition, body, elseStatement)
+        return IfStatementNode(condition, body, elseStatement, location)
     }
 
     private fun parseContinueStatement(): ContinueStatementNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.CONTINUE) throw SyntaxException(
             "Expected continue keyword",
             currentToken(),
             position
         )
         position++
-        return ContinueStatementNode().also { parseSeparator(true) }
+        return ContinueStatementNode(location).also { parseSeparator(true) }
     }
 
     private fun parseBreakStatement(): BreakStatementNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.BREAK) throw SyntaxException(
             "Expected break keyword",
             currentToken(),
             position
         )
         position++
-        return BreakStatementNode().also { parseSeparator(true) }
+        return BreakStatementNode(location).also { parseSeparator(true) }
     }
 
     private fun parseForStatement(): ForStatementNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.FOR) throw SyntaxException(
             "Invalid if expression provided, expected if keyword",
             currentToken(),
@@ -213,10 +221,11 @@ class Parser(var tokens: List<Token>) {
 
 
         val body = tryParseStmtOrSingleExpression();
-        return ForStatementNode(init, condition, increment, body)
+        return ForStatementNode(init, condition, increment, body, location)
     }
 
     private fun parseDoStatement(): DoStatementNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.DO) throw SyntaxException(
             "Invalid while statement provided, expected statement keyword", currentToken(), position
         )
@@ -229,39 +238,43 @@ class Parser(var tokens: List<Token>) {
 
         val condition = parseExpression()
         parseSeparator(true)
-        return DoStatementNode(body, condition)
+        return DoStatementNode(body, condition, location)
     }
 
     private fun parseWhileStatement(): WhileStatementNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.WHILE) throw SyntaxException(
             "Invalid while statement provided, expected statement keyword", currentToken(), position
         )
         position++
         val condition = parseExpression()
         val body = tryParseStmtOrSingleExpression()
-        return WhileStatementNode(condition, body)
+        return WhileStatementNode(condition, body, location)
     }
 
     private fun parseReturnStatement(): ReturnStatementNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.RETURN) throw SyntaxException(
             "Invalid return expression provided, expected return keyword",
             currentToken(),
             position
         )
         position++
-        return ReturnStatementNode(parseExpression())
+        return ReturnStatementNode(parseExpression(), location)
     }
 
     private fun parseVarDeclaration(
         type: TypeNode? = null,
         declarators: List<DeclaratorNode>? = null
     ): VariableDeclarationNode {
+        val location = currentToken().location
         val type = type ?: parseType()
         val decls = declarators ?: parseDeclaratorList(type)
-        return VariableDeclarationNode(type, decls).also { parseSeparator() }
+        return VariableDeclarationNode(type, decls, location).also { parseSeparator() }
     }
 
     private fun parseDeclarator(baseType: TypeNode, abstract: Boolean = false): DeclaratorNode {
+        val location = currentToken().location
         val (id, finalType) = parseDeclaratorInternal(baseType)
         if(abstract && id != null) throw SyntaxException("Expected abstract declarator but id provided: $id", currentToken(), position)
 
@@ -273,12 +286,13 @@ class Parser(var tokens: List<Token>) {
             else null
         } else null
 
-        return DeclaratorNode(finalType, id, initializer)
+        return DeclaratorNode(finalType, id, initializer, location)
     }
 
     private fun parseInitializerList(): InitializerListExpressionNode {
+        val location = currentToken().location
         val args = parseArguments(true)
-        return InitializerListExpressionNode(args.arguments)
+        return InitializerListExpressionNode(args.arguments, location)
     }
 
     private fun findPostfixDeclarator(): Int {
@@ -407,6 +421,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseArguments(acceptsBraced: Boolean): ArgumentsNode {
+        val location = currentToken().location
         val hasL = consume(Symbol.LPAREN, !acceptsBraced)
         if (acceptsBraced && !hasL) {
             consume(Symbol.BEGIN)
@@ -415,10 +430,11 @@ class Parser(var tokens: List<Token>) {
         val list = parseExpressionList();
 
         consume(if (hasL) Symbol.RPAREN else Symbol.END)
-        return ArgumentsNode(list)
+        return ArgumentsNode(list, location)
     }
 
     private fun parseArrayAccess(expression: ExpressionNode): ArrayAccessNode {
+        val location = currentToken().location
         if (currentToken() notA Symbol.LBRACKET) throw SyntaxException(
             "Expected '[' for array access",
             currentToken(),
@@ -430,13 +446,14 @@ class Parser(var tokens: List<Token>) {
                 null
             } else parseExpression()
         position++
-        return ArrayAccessNode(expression, index);
+        return ArrayAccessNode(expression, index, location);
     }
 
     private fun parseCallExpression(id: ExpressionNode? = null): CallExpressionNode {
+        val location = currentToken().location
         val id = id ?: parseExpression()
         val arguments = parseArguments(acceptsBraced = false)
-        return CallExpressionNode(id, arguments)
+        return CallExpressionNode(id, arguments, location)
     }
 
     private fun parseValueExpression(): ExpressionNode {
@@ -447,17 +464,19 @@ class Parser(var tokens: List<Token>) {
             position
         )
         if (token is StringLiteralToken) {
+            val location = token.location
             val literals = mutableListOf<StringLiteralNode>();
 
             while (token is StringLiteralToken) {
-                literals += StringLiteralNode(token.value, token.prefix);
+                literals += StringLiteralNode(token.value, token.prefix, token.location);
 
                 position++;
                 token = currentToken();
             }
-            return if (literals.size == 1) literals[0] else StringConcatExpressionNode(literals);
+            return if (literals.size == 1) literals[0] else StringConcatExpressionNode(literals, location);
         }
         position++
+        val location = token.location
         return when (token) {
             is IntToken -> IntLiteralNode(
                 token.value,
@@ -465,15 +484,17 @@ class Parser(var tokens: List<Token>) {
                 token.isUnsigned,
                 token.isLong,
                 token.isLongLong,
-                token.isSizeT
+                token.isSizeT,
+                location
             )
 
-            is BooleanToken -> BooleanLiteralNode(token.value)
-            is FloatToken -> FloatLiteralNode(token.value, token.isDouble, token.isLong)
+            is BooleanToken -> BooleanLiteralNode(token.value, location)
+            is FloatToken -> FloatLiteralNode(token.value, token.isDouble, token.isLong, location)
             is CharToken -> {
                 CharLiteralNode(
                     token.value,
                     token.prefix,
+                    location = location
                 )
             }
 
@@ -482,6 +503,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseNewExpression(): NewExpressionNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.NEW) throw SyntaxException(
             "Invalid new expression provided, expected new keyword",
             currentToken(),
@@ -509,8 +531,9 @@ class Parser(var tokens: List<Token>) {
         var initializerList: InitializerListExpressionNode? = null;
 
         if (currentToken() isA Symbol.LPAREN || currentToken() isA Symbol.BEGIN) {
+            val initLocation = currentToken().location
             position++
-            initializerList = InitializerListExpressionNode(parseExpressionList());
+            initializerList = InitializerListExpressionNode(parseExpressionList(), initLocation);
 
             if (currentToken() notA Symbol.RPAREN && currentToken() notA Symbol.END) throw SyntaxException(
                 "Invalid new expression provided, expected ')' or '}' for initializer list",
@@ -519,7 +542,7 @@ class Parser(var tokens: List<Token>) {
             )
             position++
         }
-        return NewExpressionNode(placementArgs, initializerList, type)
+        return NewExpressionNode(placementArgs, initializerList, type, location)
     }
 
     private fun parseNewExprTypeId(baseType: TypeNode? = null): TypeNode {
@@ -537,6 +560,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseSizeOfExpression(): SizeofExpressionNode {
+        val location = currentToken().location
         if (currentToken() notA Keyword.SIZEOF) throw SyntaxException(
             "Invalid sizeof expression provided, expected sizeof keyword",
             currentToken(), position
@@ -562,12 +586,13 @@ class Parser(var tokens: List<Token>) {
             currentToken(), position
         )
         position++
-        return SizeofExpressionNode(expression)
+        return SizeofExpressionNode(expression, location)
     }
 
     private fun parsePrefixUnaryExpression(): UnaryExpressionNode {
         val token = currentToken() as? OperatorToken
             ?: throw SyntaxException("Expected unary operator", currentToken(), position)
+        val location = token.location
 
         if (!token.value.isUnary) {
             throw SyntaxException("Operator '${token.value}' cannot be used as unary operator", token, position)
@@ -576,12 +601,13 @@ class Parser(var tokens: List<Token>) {
         position++
         val operand = parseExpression(Precedence.UNARY)
 
-        return UnaryExpressionNode(operand, token.value, true)
+        return UnaryExpressionNode(operand, token.value, true, location)
     }
 
     private fun parsePostfixUnaryExpression(left: ExpressionNode): UnaryExpressionNode {
         val token = currentToken() as? OperatorToken
             ?: throw SyntaxException("Expected postfix operator", currentToken(), position)
+        val location = token.location
 
         if (!token.value.isUnary) {
             throw SyntaxException("Operator '${token.value}' cannot be used as postfix operator", token, position)
@@ -589,7 +615,7 @@ class Parser(var tokens: List<Token>) {
 
         position++
 
-        return UnaryExpressionNode(left, token.value, false)
+        return UnaryExpressionNode(left, token.value, false, location)
     }
 
     private fun parseBinaryExpression(left: ExpressionNode? = null): BinaryExpressionNode {
@@ -600,6 +626,7 @@ class Parser(var tokens: List<Token>) {
             position + 1
         )
         val operator = currentToken() as OperatorToken;
+        val location = operator.location
         if (!operator.value.isBinary) throw SyntaxException(
             "Operator '${operator}' cannot be used as binary operator",
             currentToken(),
@@ -614,7 +641,7 @@ class Parser(var tokens: List<Token>) {
         }
 
         val expression = parseExpression(precedence);
-        return BinaryExpressionNode(left, expression, operator.value)
+        return BinaryExpressionNode(left, expression, operator.value, location)
     }
 
 
@@ -642,6 +669,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseType(leftType: TypeNode? = null): TypeNode {
+        val location = currentToken().location
         var isConst = false
         var isVolatile = false
         var isSigned: Boolean? = null
@@ -728,22 +756,24 @@ class Parser(var tokens: List<Token>) {
         return when (typeId) {
             is KeywordToken if typeId isA Keyword.AUTO -> AutoTypeNode(
                 isConst,
-                isVolatile
+                isVolatile,
+                location
             ).also { assertNoPrimitives() }
 
 //            is KeywordToken if typeId isA Keyword.DECLTYPE -> DeclTypeTypeNode(
 //                isConst,
-//                isVolatile
+//                isVolatile,
+//                location
 //            ).also { assertNoPrimitives() }
             is KeywordToken if typeId isA Keyword.DECLTYPE -> TODO("Decltype is not supported yet")
 
 
-            is IdentifierNode -> DeclaredTypeNode(typeId, isConst, isVolatile).also { assertNoPrimitives() }
+            is IdentifierNode -> DeclaredTypeNode(typeId, isConst, isVolatile, location).also { assertNoPrimitives() }
             is PrimitiveTypeKind -> {
                 checkPrimitiveCombinations(typeId, isSigned, isShort, longCount)
                 val king = resolvePrimitiveKind(typeId, isSigned, isShort, longCount == 1, longCount == 2)
                     ?: throw SyntaxException("Invalid type provided: $typeId", currentToken(), position)
-                PrimitiveTypeNode(king, isConst, isVolatile)
+                PrimitiveTypeNode(king, isConst, isVolatile, location)
             }
 
             else -> throw SyntaxException("Invalid type provided: $typeId", currentToken(), position)
@@ -825,6 +855,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parsePointerType(baseType: TypeNode): PointerTypeNode {
+        val location = currentToken().location
         if (currentToken() notA Operator.POINTER) throw SyntaxException(
             "Expected '*' for pointer type",
             currentToken(),
@@ -833,11 +864,12 @@ class Parser(var tokens: List<Token>) {
         position++;
 
         val constAndVol = findConstAndVolatile()
-        return PointerTypeNode(baseType, isConst = constAndVol.first, isVolatile = constAndVol.second)
+        return PointerTypeNode(baseType, isConst = constAndVol.first, isVolatile = constAndVol.second, location = location)
     }
 
     private fun tryParseMemberPointerType(baseType: TypeNode): MemberPointerTypeNode? {
         val lastPos = position
+        val location = currentToken().location
         val namespace = mutableListOf<IdentifierNode>()
 
         val isGlobal = if (currentToken() isA Operator.NAMESPACE) {
@@ -877,7 +909,8 @@ class Parser(var tokens: List<Token>) {
                     QualifiedIdentifierNode(
                         qualifiers = namespace,
                         name = node.name,
-                        isGlobal = isGlobal
+                        isGlobal = isGlobal,
+                        location = node.location
                     )
                 }
                 break
@@ -885,7 +918,7 @@ class Parser(var tokens: List<Token>) {
         }
 
         if (isPointer && classIdNode != null) {
-            return MemberPointerTypeNode(classIdNode, baseType, isConst, isVolatile)
+            return MemberPointerTypeNode(classIdNode, baseType, isConst, isVolatile, location)
         } else {
             position = lastPos
             return null
@@ -893,6 +926,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseReferenceType(baseType: TypeNode): ReferenceTypeNode {
+        val location = currentToken().location
         if (currentToken() notA Operator.AMP) throw SyntaxException(
             "Expected '&' for reference type",
             currentToken(),
@@ -901,10 +935,11 @@ class Parser(var tokens: List<Token>) {
         position++;
 
         val constAndVol = findConstAndVolatile()
-        return ReferenceTypeNode(baseType, isConst = constAndVol.first, isVolatile = constAndVol.second)
+        return ReferenceTypeNode(baseType, isConst = constAndVol.first, isVolatile = constAndVol.second, location = location)
     }
 
     private fun parseRValueReferenceType(baseType: TypeNode): RValueReferenceTypeNode {
+        val location = currentToken().location
         if (currentToken() notA Operator.AND) throw SyntaxException(
             "Expected '&' for reference type",
             currentToken(),
@@ -921,7 +956,7 @@ class Parser(var tokens: List<Token>) {
         }
 
         val constAndVol = findConstAndVolatile()
-        return RValueReferenceTypeNode(baseType, isConst = constAndVol.first, isVolatile = constAndVol.second)
+        return RValueReferenceTypeNode(baseType, isConst = constAndVol.first, isVolatile = constAndVol.second, location = location)
     }
 
     //left -> isConst : right -> isVolatile
@@ -992,12 +1027,14 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseFunctionType(type: TypeNode): FunctionTypeNode {
+        val location = currentToken().location
         val params = parseParameters();
         val qualifiers = parseFunctionQualifiers();
-        return FunctionTypeNode(type, params, qualifiers)
+        return FunctionTypeNode(type, params, qualifiers, location)
     }
 
     private fun parseArrayType(type: TypeNode): ArrayTypeNode {
+        val location = currentToken().location
         if (currentToken() notA Symbol.LBRACKET) throw SyntaxException(
             "Expected '[' for array type",
             currentToken(),
@@ -1008,10 +1045,11 @@ class Parser(var tokens: List<Token>) {
             if (currentToken() isA Symbol.RBRACKET) null
             else parseExpression()
         position++
-        return ArrayTypeNode(type, size, isConst = false, isVolatile = false)
+        return ArrayTypeNode(type, size, isConst = false, isVolatile = false, location = location)
     }
 
     private fun parseIdentifier(): IdentifierNode {
+        val firstToken = currentToken()
         val namespace = mutableListOf<IdentifierNode>()
         val isGlobal = if (currentToken() isA Operator.NAMESPACE) {
             position++
@@ -1030,7 +1068,8 @@ class Parser(var tokens: List<Token>) {
                     QualifiedIdentifierNode(
                         qualifiers = namespace,
                         name = node.name,
-                        isGlobal = isGlobal
+                        isGlobal = isGlobal,
+                        location = firstToken.location
                     )
                 }
             }
@@ -1038,6 +1077,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseMemberInitializerList(): List<MemberInitializerNode> {
+        val location = currentToken().location
         consume(Symbol.COLON)
 
         val list = mutableListOf<MemberInitializerNode>()
@@ -1046,18 +1086,20 @@ class Parser(var tokens: List<Token>) {
             val args = parseArguments(true)
             consume(Symbol.COMMA, false)
 
-            list += MemberInitializerNode(id, args, false)
+            list += MemberInitializerNode(id, args, false, location)
         }
         return list
     }
 
     private fun tryParseConstructor(classId: IdentifierNode): ConstructorDeclarationNode? {
         val lastPos = position
+        val location = currentToken().location
         val declaratorNode = parseDeclarator(
             PrimitiveTypeNode(
                 PrimitiveTypeKind.VOID,
                 isConst = false,
-                isVolatile = false
+                isVolatile = false,
+                location = location
             )
         )
 
@@ -1075,13 +1117,14 @@ class Parser(var tokens: List<Token>) {
 
         val memberInitializers = if (currentToken() isA Symbol.COLON) parseMemberInitializerList() else listOf()
         val body = parseBlock()
-        return ConstructorDeclarationNode(declType, memberInitializers, body);
+        return ConstructorDeclarationNode(declType, memberInitializers, body, location);
     }
 
     private fun parseFunctionDeclaration(
         type: TypeNode? = null,
         declarator: DeclaratorNode? = null
-    ): FunctionDeclarationNode {
+    ): FunctionDefinitionNode {
+        val location = currentToken().location
         val type = type ?: parseType();
         val declarator = declarator ?: parseDeclarator(type)
 
@@ -1096,12 +1139,13 @@ class Parser(var tokens: List<Token>) {
             position
         );
 
-        val body = FunctionBodyNode(parseBlock().statements);
-        return FunctionDeclarationNode(declarator, body).also { parseSeparator(false) }
+        val body = FunctionBodyNode(parseBlock().statements, location);
+        return FunctionDefinitionNode(declarator, body, location).also { parseSeparator(false) }
     }
 
     private fun parseBlock(): AnonymousBlock {
         val token = currentToken()
+        val location = token.location
         if (token isA Symbol.BEGIN) {
             position++
         } else throw SyntaxException("Begin symbol expected for code block", token, position)
@@ -1119,13 +1163,14 @@ class Parser(var tokens: List<Token>) {
             }
         }
         position++
-        return AnonymousBlock(nodes)
+        return AnonymousBlock(nodes, location)
     }
 
     private fun tryParseStmtOrSingleExpression(): StatementNode {
+        val location = currentToken().location
         val stmt = tryParseStatement();
         if (stmt is EmptyStatementNode) {
-            return CompoundStatementNode(listOf(parseExpression()))
+            return CompoundStatementNode(listOf(parseExpression()), location)
         }
         return stmt
     }
@@ -1166,7 +1211,7 @@ class Parser(var tokens: List<Token>) {
             }
 
             token isA Keyword.CLASS || token isA Keyword.STRUCT -> parseClassDeclaration()
-            token isA Keyword.NAMESPACE -> parseNamespaceDeclaration()
+            token isA Keyword.NAMESPACE -> parseNamespaceDeclaration(token.location)
             else -> EmptyStatementNode
         }
     }
@@ -1219,6 +1264,7 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseClassBody(classId: IdentifierNode?): ClassBodyNode {
+        val location = currentToken().location
         consume(Symbol.BEGIN)
 
         val nodes = mutableListOf<ASTNode>()
@@ -1232,7 +1278,7 @@ class Parser(var tokens: List<Token>) {
                     position
                 )
                 position++
-                nodes += AccessDeclarationNode(keyword);
+                nodes += AccessDeclarationNode(keyword, currentToken().location);
             } else if (currentToken() is IdToken) {
                 val constructor = if (classId != null) tryParseConstructor(classId) else null
                 if (constructor == null) {
@@ -1248,7 +1294,7 @@ class Parser(var tokens: List<Token>) {
             }
         }
         position++
-        return ClassBodyNode(nodes)
+        return ClassBodyNode(nodes, location)
     }
 
     private fun parseParameters(): List<ParameterNode> {
@@ -1279,16 +1325,17 @@ class Parser(var tokens: List<Token>) {
     }
 
     private fun parseParameter(): ParameterNode {
+        val location = currentToken().location
         val type = parseType();
         val declarator = parseDeclarator(type);
-        return ParameterNode(declarator)
+        return ParameterNode(declarator, location)
     }
 
     private fun parseSimpleIdentifier(): IdentifierNode {
         val token = currentToken()
         if (token is IdToken) {
             position++;
-            return IdentifierNode(token.value)
+            return IdentifierNode(token.value, token.location)
         }
         throw SyntaxException("Invalid identifier provided ", currentToken(), position)
     }
@@ -1301,12 +1348,13 @@ class Parser(var tokens: List<Token>) {
             identifier = parseIdentifier()
         }
         val body = parseCompound()
-        val decl = NamespaceDeclarationNode(identifier, body)
+        val decl = NamespaceDeclarationNode(identifier, body, location)
         parseSeparator(false)
         return decl;
     }
 
     private fun parseClassDeclaration(): DeclarationNode {
+        val location = currentToken().location
         val classType = resolveClassType(currentToken());
         position++
 
@@ -1315,7 +1363,7 @@ class Parser(var tokens: List<Token>) {
             identifier = parseSimpleIdentifier()
         }
         val body = parseClassBody(identifier)
-        val decl = ClassDeclarationNode(identifier, classType, body)
+        val decl = ClassDeclarationNode(identifier, classType, body, location)
         parseSeparator(false)
         return decl;
     }

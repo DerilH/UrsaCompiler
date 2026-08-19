@@ -21,9 +21,17 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
     override fun analyze(node: UnaryExpressionNode, ctx: AnalyzeContext): ASTNode {
         node.operand = ctx.findAnalyzer(node.operand).analyze(node.operand, ctx) as ExpressionNode
         val type = node.operand.resolvedType;
-        val operandInfo = ExpressionInfo(type!!, node.operand.valueCategory!!, ctx.isNullPointerConstant(node.operand))
+        val vc = node.operand.valueCategory;
+        if(type == null || vc == null) {
+            ctx.error("Could not resolve type of operand", node.operand)
+            return node;
+        }
+
+        val operandInfo = ExpressionInfo(type, vc, ctx.isNullPointerConstant(node.operand))
         if(type.isPointer()) {
-            node.resolvedType = resolvePointerUnaryOpType(node.operand.resolvedType as SemanticType.Pointer, node, ctx);
+            val info = resolvePointerUnaryOpType(node.operand.resolvedType as SemanticType.Pointer, node, ctx);
+            node.resolvedType = info?.type;
+            node.valueCategory = info?.valueCategory;
             return node;
         }
         else {
@@ -53,6 +61,7 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
                 val overload = overloads.first();
                 node.functionDecl = overload.decl;
                 node.resolvedType = overload.decl.returnType;
+                node.valueCategory = ctx.getRefValueCategory(overload.decl.returnType)
                 //TODO: check if overload is valid for primitive (maybe not needed check for empty conversion sequence;
 
                 if(!isPrimitive) {
@@ -69,7 +78,7 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
         operand: SemanticType.Pointer,
         node: UnaryExpressionNode,
         ctx: AnalyzeContext
-    ): SemanticType? {
+    ): ExpressionInfo? {
         val pointee = operand.pointee
 
         return when (node.operator) {
@@ -81,20 +90,21 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
                     ctx.error("Cannot dereference pointer to incomplete type '${pointee}'", node)
                     null
                 } else {
-                    pointee
+                    ExpressionInfo(pointee, ValueCategory.LVALUE, false)
                 }
             }
 
             Operator.AMP -> {
-                ctx.types.getPointer(pointee = operand, isConst = false, isVolatile = false)
+                val t = ctx.types.getPointer(pointee = operand, isConst = false, isVolatile = false)
+                ExpressionInfo(t, ValueCategory.PRVALUE, false)
             }
 
             Operator.NOT -> {
-                ctx.types.bool
+                ExpressionInfo(ctx.types.bool, ValueCategory.PRVALUE, false)
             }
 
             Operator.PLUS -> {
-                operand
+                ExpressionInfo(operand, ValueCategory.PRVALUE, false)
             }
 
             Operator.INCREMENT, Operator.DECREMENT -> {
@@ -108,7 +118,7 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
                     ctx.error("Arithmetic on a pointer to an incomplete type '${pointee}'", node)
                     null
                 } else {
-                    operand
+                    ExpressionInfo(ctx.types.bool, ValueCategory.LVALUE, false)
                 }
             }
 

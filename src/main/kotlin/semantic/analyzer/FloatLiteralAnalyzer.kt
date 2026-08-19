@@ -22,6 +22,7 @@ class FloatLiteralAnalyzer : NodeAnalyzer<FloatLiteralNode> {
         validateFloatRange(rawString, kind, ctx, node)
 
         node.resolvedType = ctx.types.getPrimitive(kind)
+        node.evaluated = node.value;
         return node
     }
     private fun validateFloatRange(

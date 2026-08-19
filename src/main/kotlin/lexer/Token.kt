@@ -9,6 +9,7 @@ import org.derilh.util.Util
 import java.math.BigInteger
 
 sealed class Token(val location: SourceLocation) {
+    abstract val stringValue: String
     open infix fun isA(other: Any): Boolean = false
     open infix fun oneOf(other: List<Any>): Boolean {
         for (a in other) {
@@ -22,9 +23,13 @@ sealed class Token(val location: SourceLocation) {
 
 }
 
-class EofToken(location: SourceLocation) : Token(location)
+class EofToken(location: SourceLocation) : Token(location) {
+    override val stringValue: String get() = ""
+}
 
 class IdToken(val value: String, location: SourceLocation) : Token(location) {
+    override val stringValue: String get() = value
+
     override fun toString(): String {
         return "Id('$value')"
     }
@@ -35,8 +40,10 @@ class IdToken(val value: String, location: SourceLocation) : Token(location) {
     }
 }
 
-open class ValueToken<T>(val value: T, location: SourceLocation) : Token(location)
+abstract class ValueToken<T>(val value: T, location: SourceLocation) : Token(location)
 class BooleanToken(value: Boolean, location: SourceLocation) : ValueToken<Boolean>(value, location) {
+    override val stringValue: String
+        get() = value.toString()
     companion object {
         fun resolve(name: String, location: SourceLocation): BooleanToken? =
             when (name) {
@@ -52,30 +59,38 @@ class BooleanToken(value: Boolean, location: SourceLocation) : ValueToken<Boolea
 }
 
 class IntToken(value: BigInteger, val radix: Radix, val isUnsigned: Boolean, val isLong: Boolean, val isLongLong: Boolean, val isSizeT: Boolean, location: SourceLocation) : ValueToken<BigInteger>(value, location) {
+    override val stringValue: String get() = value.toString()
+
     override fun toString(): String {
         return "IntVal('$value')"
     }
 }
 
 class FloatToken(value: String, val isDouble: Boolean, val isLong: Boolean, location: SourceLocation) : ValueToken<String>(value, location) {
+    override val stringValue: String get() = value
     override fun toString(): String {
         return "FloatVal('$value')"
     }
 }
 
 class CharToken(value: IntArray, val prefix: CharPrefix, location: SourceLocation) : ValueToken<IntArray>(value, location) {
+    override val stringValue: String get() = Util.codePointsToUtf16Filtered(value)
+
     override fun toString(): String {
         return "CharVal('${Util.codePointsToUtf16Filtered(value)}')"
     }
 }
 
 class StringLiteralToken(value: IntArray, val prefix: CharPrefix, location: SourceLocation) : ValueToken<IntArray>(value, location) {
+    override val stringValue: String get() = Util.codePointsToUtf16Filtered(value)
+
     override fun toString(): String {
         return "StringVal('${Util.codePointsToUtf16Filtered(value)}')"
     }
 }
 
 class KeywordToken(val value: Keyword, location: SourceLocation) : Token(location) {
+    override val stringValue: String get() = value.value
     companion object {
         private val BY_NAME: Map<String, Keyword> =
             Keyword.entries.associateBy { it.value }
@@ -94,6 +109,8 @@ class KeywordToken(val value: Keyword, location: SourceLocation) : Token(locatio
 }
 
 class SymbolToken(val value: Symbol, location: SourceLocation) : Token(location) {
+    override val stringValue: String
+        get() = value.value.toString()
     companion object {
         private val BY_NAME: Map<Symbol, Symbol> =
             Symbol.entries.associateBy { it }
@@ -112,6 +129,8 @@ class SymbolToken(val value: Symbol, location: SourceLocation) : Token(location)
 }
 
 class OperatorToken(val value: Operator, location: SourceLocation) : Token(location) {
+    override val stringValue: String get() = value.value
+
     val size: Int
         get() = value.value.length
 

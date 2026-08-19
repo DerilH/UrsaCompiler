@@ -1,6 +1,6 @@
 package org.derilh.analyzer
 
-import org.derilh.exceptions.SemanticException
+import org.derilh.exceptions.SemanticProblem
 
 
 open class Scope(
@@ -19,8 +19,8 @@ open class Scope(
                 set.clear()
                 set += symbol
             }
-            is DeclSymbol.NamespaceDecl -> throw SemanticException("Namespace cannot be redefined: ${symbol.name}")
-            is DeclSymbol.ClassDecl -> throw SemanticException("Class cannot be redefined: ${symbol.name}")
+            is DeclSymbol.NamespaceDecl -> throw IllegalStateException("Namespace cannot be redefined: ${symbol.name}")
+            is DeclSymbol.ClassDecl -> throw IllegalStateException("Class cannot be redefined: ${symbol.name}")
             is DeclSymbol.FunctionDecl -> set += symbol
         }
     }

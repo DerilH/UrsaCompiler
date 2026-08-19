@@ -92,4 +92,7 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
 
     fun dropCV(type: SemanticType): SemanticType = type.dropCV(key)
     fun addCV(type: SemanticType, isConst: Boolean, isVolatile: Boolean): SemanticType = type.addCV(isConst, isVolatile, key)
+    fun removeRef(type: SemanticType): SemanticType = type.removeRef(key)
+
+    fun decay(type: SemanticType): SemanticType = type.removeRef(key).decay(key)
 }

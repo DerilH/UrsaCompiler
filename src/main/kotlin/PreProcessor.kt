@@ -1,8 +1,12 @@
 package org.derilh
 
+import org.derilh.exceptions.ProblemLevel
+import org.derilh.exceptions.SemanticProblem
+import java.nio.file.Path
+
 class PreProcessor {
     var line = 0;
-    fun preProcess(input: String, fileName: String): String {
+    fun preProcess(input: String, filePath: Path): String {
         val builder = StringBuilder()
         var i = 0;
         var skipLine: Boolean = false;
@@ -24,7 +28,7 @@ class PreProcessor {
 
             if((skipLine && ((ch == '\n' || ch == '\r') && skipUntil == null) || firstTwo == skipUntil)) {
                 skipLine = false;
-                builder.append("#line $line $fileName")
+                builder.append("#line $line \"${filePath.toAbsolutePath()}\"")
                 if(firstTwo == skipUntil) {
                     i += skipUntil.length
                     skipUntil = null
@@ -43,4 +47,5 @@ class PreProcessor {
         }
         return builder.toString()
     }
+
 }

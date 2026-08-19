@@ -9,6 +9,7 @@ class BoolLiteralAnalyzer : NodeAnalyzer<BooleanLiteralNode> {
 
     override fun analyze(node: BooleanLiteralNode, ctx: AnalyzeContext): ASTNode {
         node.resolvedType = ctx.types.bool
+        node.evaluated = node.value
         return node;
     }
 }

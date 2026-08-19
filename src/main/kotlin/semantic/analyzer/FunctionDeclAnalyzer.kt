@@ -3,14 +3,14 @@ package org.derilh.analyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.ClassDeclarationNode
 import org.derilh.ast.FunctionBodyNode
-import org.derilh.ast.FunctionDeclarationNode
+import org.derilh.ast.FunctionDefinitionNode
 import org.derilh.ast.QualifiedIdentifierNode
 import org.derilh.ast.ReturnStatementNode
 import org.derilh.core.RefQualifier
 import org.derilh.semantic.SemanticType
 
-class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclarationNode> {
-    private fun analyzeParams(funcDecl: FunctionDeclarationNode, ctx: AnalyzeContext) {
+class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
+    private fun analyzeParams(funcDecl: FunctionDefinitionNode, ctx: AnalyzeContext) {
         var hasDefault = false;
         for (param in funcDecl.type.params) {
             if (param.name == null) continue
@@ -37,7 +37,7 @@ class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclarationNode> {
         }
     }
 
-    override fun analyze(node: FunctionDeclarationNode, ctx: AnalyzeContext): ASTNode {
+    override fun analyze(node: FunctionDefinitionNode, ctx: AnalyzeContext): ASTNode {
         ctx.resolveType(node.declarator.type, ctx.scope);
 
         val defaultParamCount = node.type.params.count {it.declarator.initializer != null}
@@ -81,7 +81,7 @@ class FunctionBodyAnalyzer : NodeAnalyzer<FunctionBodyNode> {
         var returnType: SemanticType? = null;
 
         for (child in node.statements) {
-            if (child is FunctionDeclarationNode) {
+            if (child is FunctionDefinitionNode) {
                 ctx.error("Inner function are not supported yet", child)
                 continue;
             }

@@ -1,17 +1,13 @@
 package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
-import org.derilh.ast.ArrayTypeNode
-import org.derilh.ast.IntLiteralNode
-import org.derilh.ast.PrimitiveTypeNode
 import org.derilh.ast.StringConcatExpressionNode
 import org.derilh.ast.StringLiteralNode
 import org.derilh.core.CharPrefix
 import org.derilh.core.Constants
 import org.derilh.core.toPrimitiveKind
-import org.derilh.exceptions.SemanticException
+import org.derilh.exceptions.SemanticProblem
 import org.derilh.semantic.SemanticType
-import org.derilh.target.TargetInfo
 import org.derilh.util.Util
 
 class StringLiteralAnalyzer : NodeAnalyzer<StringLiteralNode> {
@@ -44,10 +40,11 @@ class StringLiteralAnalyzer : NodeAnalyzer<StringLiteralNode> {
             val uCodePoint = codePoint.toUInt().toULong()
 
             if (uCodePoint > maxCharVal) {
-                throw SemanticException(
+                ctx.error(
                     "Character value $codePoint is out of range for string prefix $prefix (max: $maxCharVal)",
                     node
                 )
+                return node;
             }
         }
 
@@ -68,7 +65,8 @@ class StringConcatAnalyzer : NodeAnalyzer<StringConcatExpressionNode> {
                 if (prefix == CharPrefix.NONE) {
                     prefix = lit.prefix
                 } else if (prefix != lit.prefix) {
-                    throw SemanticException("Cannot mix different prefixes in string concatenation", lit)
+                    ctx.error("Cannot mix different prefixes in string concatenation", lit)
+                    return node;
                 }
             }
             expectedListSize += lit.value.size - 1
@@ -86,7 +84,10 @@ class StringConcatAnalyzer : NodeAnalyzer<StringConcatExpressionNode> {
 
         concatArray[concatArray.size - 1] = 0
         val type = determineStringType(prefix, concatArray.size.toLong(), ctx)
-        return StringLiteralNode(concatArray, prefix).also { it.resolvedType = type }
+        return StringLiteralNode(concatArray, prefix, node.location).also {
+            it.resolvedType = type
+            it.evaluated = concatArray
+        }
     }
 }
 

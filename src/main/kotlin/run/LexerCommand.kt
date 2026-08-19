@@ -23,7 +23,7 @@ class LexerCommand : CliktCommand(
     override fun run() {
         var code = Files.readString(inputPath)
         val preProcessor = PreProcessor();
-        code = preProcessor.preProcess(code, inputPath.fileName.toString())
+        code = preProcessor.preProcess(code, inputPath)
 
         val lexer = Lexer()
         val tokens = lexer.tokenize(code)

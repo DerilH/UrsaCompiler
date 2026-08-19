@@ -142,7 +142,7 @@ class AutoTypeNode(isConst: Boolean, isVolatile: Boolean, override val location:
 //    override val children: List<ASTNode> get() = listOf(type)
 //}
 
-abstract class TypeNode(open val isConst: Boolean, val isVolatile: Boolean) : ASTNode {
+sealed class TypeNode(open val isConst: Boolean, val isVolatile: Boolean) : ASTNode {
     override val children: List<ASTNode> get() = emptyList()
     var resolvedType: SemanticType? = null
     override fun toString(): String = "${this.javaClass.simpleName}(isConst=$isConst, isVolatile=$isVolatile)"
@@ -386,7 +386,7 @@ data class ConstructorDeclarationNode(
     override fun toString(): String = "ConstructorDeclarationNode()"
 }
 
-data class FunctionDeclarationNode(
+data class FunctionDefinitionNode(
     val declarator: DeclaratorNode,
     var body: FunctionBodyNode, override val location: SourceLocation?
 ) : DeclarationNode(location) {
@@ -452,7 +452,7 @@ class StringLiteralNode(value: IntArray, var prefix: CharPrefix, location: Sourc
     }
 }
 
-class NullptrLiteral(location: SourceLocation?) : LiteralNode<Int>(0, ValueCategory.PRVALUE, location) {
+class NullptrLiteralNode(location: SourceLocation?) : LiteralNode<Int>(0, ValueCategory.PRVALUE, location) {
     override fun toString(): String {
         return "NullptrLiteral"
     }
@@ -502,7 +502,7 @@ class SizeofExpressionNode(val expression: ASTNode, override val location: Sourc
 
 class IdExpressionNode(val id: IdentifierNode, override val location: SourceLocation?) : ExpressionNode(ValueCategory.LVALUE) {
     override val children: List<ASTNode> get() = listOf(id)
-
+    var decl: DeclSymbol? = null;
 
     override fun toString(): String {
         return "IdExpressionNode('$id')"
@@ -540,10 +540,10 @@ class InitializerListExpressionNode(
 }
 
 class VariableDeclarationNode(
-    val baseType: TypeNode,
+    val typeSpecifier: TypeNode,
     val declarations: List<DeclaratorNode>, location: SourceLocation?
 ) : DeclarationNode(location) {
-    override val children: List<ASTNode> get() = listOf(baseType) + declarations
+    override val children: List<ASTNode> get() = listOf(typeSpecifier) + declarations
     override fun toString(): String = "VariableDeclarationNode"
 }
 
@@ -645,7 +645,7 @@ class AccessDeclarationNode(
 }
 
 data class RootNode(
-    val declarations: List<ASTNode>, override val location: SourceLocation = SourceLocation.ZERO
+    val declarations: List<ASTNode>, override val location: SourceLocation = SourceLocation.EXPORTED
 ) : ASTNode {
     override val children: List<ASTNode> get() = declarations
 }

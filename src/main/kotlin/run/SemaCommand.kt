@@ -11,6 +11,7 @@ import org.derilh.analyzer.SemanticAnalyzer
 import org.derilh.ast.Parser
 import org.derilh.lexer.Lexer
 import org.derilh.target.X86_64LinuxTargetInfo
+import org.derilh.util.Printer
 import org.derilh.util.printTree
 import java.nio.file.Files
 import javax.swing.AbstractAction
@@ -33,7 +34,7 @@ class SemaCommand : CliktCommand(
     override fun run() {
         var code = Files.readString(inputPath)
         val preProcessor = PreProcessor();
-        code = preProcessor.preProcess(code, inputPath.fileName.toString())
+        code = preProcessor.preProcess(code, inputPath)
 
         val lexer = Lexer()
         val tokens = lexer.tokenize(code)
@@ -47,7 +48,8 @@ class SemaCommand : CliktCommand(
             else -> TODO("Target not supported yet")
         }
 
-        val analyzer = SemanticAnalyzer(ast, targetInfo);
+        val printer = Printer(code, lexer);
+        val analyzer = SemanticAnalyzer(ast, targetInfo, printer);
         analyzer.analyze();
     }
 }

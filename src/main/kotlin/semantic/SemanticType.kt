@@ -17,17 +17,23 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
     abstract val isComplete: Boolean
     abstract fun dropCV(key: TypeContext.Key): SemanticType;
     abstract fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType;
+    open fun removeRef(key: TypeContext.Key) = this
+    open fun removePointer(key: TypeContext.Key) = this
+    open fun decay(key: TypeContext.Key) = this
 
+    override fun toString(): String {
+        return toDisplayString()
+    }
     class Primitive internal constructor(val kind: PrimitiveTypeKind, isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key) : SemanticType(isConst, isVolatile, key) {
         override val isComplete: Boolean
             get() = kind != PrimitiveTypeKind.VOID
 
         override fun dropCV(key: TypeContext.Key): SemanticType {
-            return Primitive(kind, isConst = false, isVolatile = false, key = key).let { if (it === this) this else it }
+            return key.getOrCreate(Primitive(kind, isConst = false, isVolatile = false, key = key).let { if (it === this) this else it })
         }
 
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType {
-            return Primitive(kind, isConst = isConst, isVolatile = isVolatile, key = key).let { if (it === this) this else it }
+            return key.getOrCreate(Primitive(kind, isConst = isConst, isVolatile = isVolatile, key = key).let { if (it === this) this else it })
         }
 
         override fun toDisplayString(): String = "${qualifiersPrefix()}${kind.name.lowercase()}"
@@ -44,11 +50,11 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override val isComplete: Boolean = true
 
         override fun dropCV(key: TypeContext.Key): SemanticType {
-            return Pointer(pointee, isConst = false, isVolatile = false, key = key).let { if (it === this) this else it }
+            return key.getOrCreate(Pointer(pointee, isConst = false, isVolatile = false, key = key).let { if (it === this) this else it })
         }
 
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType {
-            return Pointer(pointee, isConst = isConst, isVolatile = isVolatile, key = key).let { if (it === this) this else it }
+            return key.getOrCreate(Pointer(pointee, isConst = isConst, isVolatile = isVolatile, key = key).let { if (it === this) this else it })
         }
 
         override fun toDisplayString(): String = "${pointee.toDisplayString()}*${qualifiersPrefix().trimEnd()}"
@@ -59,7 +65,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             return pointee === other.pointee && isConst == other.isConst && isVolatile == other.isVolatile
         }
 
-        override fun hashCode(): Int = Objects.hash(pointee, isConst, isVolatile)
+        override fun hashCode(): Int = Objects.hash(javaClass, pointee, isConst, isVolatile)
     }
 
     class Reference internal constructor(val pointee: SemanticType, key: TypeContext.Key) : SemanticType(key = key) {
@@ -68,6 +74,8 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
 
+        override fun removeRef(key: TypeContext.Key): SemanticType = pointee
+
         override fun toDisplayString(): String = "${pointee.toDisplayString()}&"
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -75,7 +83,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             return pointee === other.pointee
         }
 
-        override fun hashCode(): Int = Objects.hash(pointee, isConst, isVolatile)
+        override fun hashCode(): Int = Objects.hash(javaClass, pointee, isConst, isVolatile)
     }
 
     class RValueReference internal constructor(val pointee: SemanticType, key: TypeContext.Key) : SemanticType(key = key) {
@@ -83,6 +91,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
 
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
+        override fun removeRef(key: TypeContext.Key): SemanticType = pointee
 
         override fun toDisplayString(): String = "${pointee.toDisplayString()}&&"
         override fun equals(other: Any?): Boolean {
@@ -91,7 +100,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             return pointee === other.pointee
         }
 
-        override fun hashCode(): Int = Objects.hash(pointee, isConst, isVolatile)
+        override fun hashCode(): Int = Objects.hash(javaClass, pointee, isConst, isVolatile)
     }
 
     class Array internal constructor(val elementType: SemanticType, val size: Long?, key: TypeContext.Key) : SemanticType(elementType.isConst, elementType.isVolatile, key) {
@@ -103,14 +112,18 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             val newElementType = elementType.dropCV(key)
             if (newElementType === elementType) return this
 
-            return Array(key.getOrCreate(newElementType), size, key)
+            return key.getOrCreate(Array(key.getOrCreate(newElementType), size, key))
         }
 
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType {
             val newElementType = elementType.addCV(isConst, isVolatile, key)
             if (newElementType === elementType) return this
 
-            return Array(key.getOrCreate(newElementType), size, key)
+            return key.getOrCreate(Array(key.getOrCreate(newElementType), size, key))
+        }
+
+        override fun decay(key: TypeContext.Key): SemanticType {
+            return key.getOrCreate(Pointer(elementType, isConst = false, isVolatile = false, key = key))
         }
 
         override fun toDisplayString(): String {
@@ -132,6 +145,9 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
 
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
+        override fun decay(key: TypeContext.Key): SemanticType {
+            return key.getOrCreate(Pointer(this, isConst = false, isVolatile = false, key = key))
+        }
 
         override fun toDisplayString(): String {
             val paramsStr = params.joinToString(", ") { it.toDisplayString() }
@@ -194,11 +210,11 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
 
     class MemberPointer internal constructor(val decl: DeclSymbol.ClassDecl, val pointee: SemanticType, isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key) : SemanticType(isConst, isVolatile, key) {
         override fun dropCV(key: TypeContext.Key): SemanticType {
-            return MemberPointer(decl, pointee, isConst = false, isVolatile = false, key = key).let { if (it === this) this else it }
+            return key.getOrCreate(MemberPointer(decl, pointee, isConst = false, isVolatile = false, key = key).let { if (it === this) this else it })
         }
 
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType {
-            return MemberPointer(decl, pointee, isConst = isConst, isVolatile = isVolatile, key = key).let { if (it === this) this else it }
+            return key.getOrCreate(MemberPointer(decl, pointee, isConst = isConst, isVolatile = isVolatile, key = key).let { if (it === this) this else it })
         }
 
         override val isComplete: Boolean = true

@@ -3,10 +3,11 @@ package org.derilh.analyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.IdentifierNode
-import org.derilh.ast.PrimitiveTypeNode
 import org.derilh.ast.TypeNode
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
+import org.derilh.core.OpResult
+import org.derilh.core.ValueCategory
 import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
 import org.derilh.semantic.TypeContext
@@ -29,12 +30,16 @@ interface AnalyzeContext {
     fun <T : ASTNode> findAnalyzer(node: T): NodeAnalyzer<T>
     fun warn(message: String, node: ASTNode? = null)
     fun error(message: String, node: ASTNode? = null)
+    fun error(failure: OpResult.Failure)
     fun isSameType(first: SemanticType, second: SemanticType): Boolean
     fun resolveSymbols(node: IdentifierNode, currentScope: Scope): Set<DeclSymbol>
-    fun resolveType(typeNode: TypeNode, currentScope: Scope, deduceType: SemanticType? = null, isByValue: Boolean = true): SemanticType?;
+    fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope): Set<DeclSymbol>;
+    fun resolveType(typeNode: TypeNode, currentScope: Scope, deduceType: SemanticType? = null, isByValue: Boolean = true): OpResult<SemanticType>;
     fun findBinaryOverload(firstOp: TypeNode, secondOp: TypeNode, operator: Operator): DeclSymbol.FunctionDecl?
     fun resolveOpOverloads(scope: Scope, op: Operator, params: List<ExpressionInfo>): Set<ViableCandidate<DeclSymbol.OperatorFunctionDecl>>;
     fun buildConversionNodes(base: ExpressionNode, seq: ConversionSequence): ExpressionNode;
+    fun findImplicitCastSeq(fromType: SemanticType, fromVC: ValueCategory, toType: SemanticType, toVC: ValueCategory, isNullPointerConstant: Boolean): Collection<ConversionSequence>
+    fun getRefValueCategory(returnType: SemanticType): ValueCategory;
 
     fun getNextAnonId(): Int {
         return anonymousIdCounter++;

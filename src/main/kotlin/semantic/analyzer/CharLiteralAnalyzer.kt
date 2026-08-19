@@ -2,13 +2,11 @@ package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
 import org.derilh.ast.CharLiteralNode
-import org.derilh.ast.PrimitiveTypeNode
 import org.derilh.core.CharPrefix
 import org.derilh.core.Constants
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.toPrimitiveKind
-import org.derilh.exceptions.SemanticException
-import org.derilh.target.TargetInfo
+import org.derilh.exceptions.SemanticProblem
 import org.derilh.util.Util
 
 class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
@@ -17,13 +15,17 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
         var codePoints = node.value
 
         if (codePoints.isEmpty()) {
-            throw SemanticException("Empty character constant", node)
+            ctx.error("Empty character constant", node)
+            return node
         }
 
         node.isMultiChar = codePoints.size > 1
 
         if (node.isMultiChar) {
-            if(node.prefix != CharPrefix.NONE) throw SemanticException("Char typer prefixes cannot be used with multi-character literals", node)
+            if(node.prefix != CharPrefix.NONE) {
+                ctx.error("Char typer prefixes cannot be used with multi-character literals", node)
+                return node
+            }
             ctx.warn("Multi-character character constant", node)
         }
 
@@ -34,15 +36,16 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
             codePoints
         }
 
-        node.numericValue = calculateNumericValue(codePoints, node.prefix, ctx)
+        node.numericValue = calculateNumericValue(codePoints, node.prefix, ctx, node)
 
         val kind = deduceCharKind(node)
 
         node.resolvedType = ctx.types.getPrimitive(kind)
+        node.evaluated = node.value
         return node
     }
 
-    private fun calculateNumericValue(text: IntArray, prefix: CharPrefix, ctx: AnalyzeContext): ULong {
+    private fun calculateNumericValue(text: IntArray, prefix: CharPrefix, ctx: AnalyzeContext, node: ASTNode): ULong {
         val target = ctx.target
         var numericValue = 0UL
 
@@ -56,7 +59,8 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
         } else prefix
 
         if (effectivePrefix != CharPrefix.NONE && text.size > 1) {
-            throw SemanticException("Multi-character literal not supported for prefixed literals ($prefix)", null)
+            ctx.error("Multi-character literal not supported for prefixed literals ($prefix)")
+            return 0UL;
         }
 
         val (bitWidth, maxCharVal) = when (effectivePrefix) {
@@ -76,7 +80,7 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
             val uCodePoint = codePoint.toUInt().toULong()
 
             if (uCodePoint > maxCharVal) {
-                ctx.error("Character value $codePoint is out of range for prefix $prefix (max: $maxCharVal)", null)
+                ctx.error("Character value $codePoint is out of range for prefix $prefix (max: $maxCharVal)", node)
                 return 0UL;
             }
 

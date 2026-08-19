@@ -16,6 +16,7 @@ class Lexer {
         val tokens = mutableListOf<Token>()
         val tokenBuilder = StringBuilder()
         var i = 0
+        var startI = 0;
         var line = 1
         var col = 1
         var startLine = 1
@@ -41,10 +42,11 @@ class Lexer {
         fun markStart() {
             startLine = line
             startCol = col
+            startI = i;
         }
 
-        fun currentLoc() = SourceLocation(line, col, currentFile)
-        fun startLoc() = SourceLocation(startLine, startCol, currentFile)
+        fun currentLoc() = SourceLocation(line, col, i, i - startI, currentFile)
+        fun startLoc() = SourceLocation(startLine, startCol, startI, i - startI, currentFile)
 
         fun buildStringToken(prefix: CharPrefix, value: IntArray) {
             tokens += StringLiteralToken(value, prefix, startLoc())
@@ -439,7 +441,8 @@ class Lexer {
             val operator = tryReadOperator(i)
             if (operator != null) {
                 buildToken()
-                tokens += OperatorToken(operator, currentLoc())
+                markStart()
+                tokens += OperatorToken(operator, startLoc())
                 advance(operator.value.length)
                 continue
             }
@@ -447,7 +450,8 @@ class Lexer {
             val symbolToken = tryReadSymbol(i)
             if (symbolToken != null) {
                 buildToken()
-                tokens += SymbolToken(symbolToken, currentLoc())
+                markStart()
+                tokens += SymbolToken(symbolToken, startLoc())
                 advance()
                 continue
             }
