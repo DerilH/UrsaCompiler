@@ -42,8 +42,14 @@ class Lexer {
             startI = i;
         }
 
-        fun currentLoc() = SourceLocation(line, col, i, i - startI, currentFile)
-        fun startLoc() = SourceLocation(startLine, startCol, startI, i - startI, currentFile)
+//        fun currentLoc() = SourceLocation(line, col, i, i - startI, currentFile)
+//        fun startLoc() = SourceLocation(startLine, startCol, startI, i - startI, currentFile)
+
+
+
+        fun currentLoc() = SourceLocation(line, col, i - startI, currentFile)
+        fun startLoc() = SourceLocation(startLine, startCol, i - startI, currentFile)
+
 
         fun buildStringToken(prefix: CharPrefix, value: IntArray) {
             tokens += StringLiteralToken(value, prefix, startLoc())

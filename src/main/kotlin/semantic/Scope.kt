@@ -28,6 +28,12 @@ open class Scope(
             }
         }
     }
+    fun findCurrentFunction(): DeclSymbol.FunctionDecl? {
+        return if(this.ownerSymbol is DeclSymbol.FunctionDecl) ownerSymbol else parent?.findCurrentFunction()
+    }
+    fun findCurrentClass(): DeclSymbol.ClassDecl? {
+        return if(this.ownerSymbol is DeclSymbol.ClassDecl) ownerSymbol else parent?.findCurrentClass()
+    }
 
     fun addUsingDirective(importedScope: Scope) {
         usingDirectives.add(importedScope)

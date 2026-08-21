@@ -1,17 +1,10 @@
 #include <iostream>
-
 #include <iostream>
-#include <vector>
-#include <string>
 
-#define MAX_SIZE 0xFF
-#define EPSILON 1.0e-5f
-
-/*
- * Многострочный комментарий
- * Внутри могут быть символы: //, /*, ->, >=
- * И даже неполные кавычки "hello
- */
+int main() {
+     int asdf = "asd";
+     return "f";
+}
 
 // template <typename T, int N = 100>
 // class ComplexParserTest {
@@ -129,6 +122,8 @@ void testEscapeSequences() {
     auto c = &a;
     c = 2.0;
 
+
+    c = 2.0;
     int x,y = 5,z(double);
 
     int ref = 1 + 5;

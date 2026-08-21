@@ -1,5 +1,26 @@
-package org.derilh.analyzer
+package org.derilh.semantic.analyzer
 
+import org.derilh.analyzer.AbstractDeclaratorAnalyzer
+import org.derilh.analyzer.AnalyzeContext
+import org.derilh.analyzer.BinaryExprAnalyzer
+import org.derilh.analyzer.BoolLiteralAnalyzer
+import org.derilh.analyzer.CharLiteralAnalyzer
+import org.derilh.analyzer.ClassScope
+import org.derilh.analyzer.DeclSymbol
+import org.derilh.analyzer.DeclarationSeqAnalyzer
+import org.derilh.analyzer.FloatLiteralAnalyzer
+import org.derilh.analyzer.GlobalScope
+import org.derilh.analyzer.IntLiteralAnalyzer
+import org.derilh.analyzer.NamespaceDeclAnalyzer
+import org.derilh.analyzer.NodeAnalyzer
+import org.derilh.analyzer.NullptrLiteralAnalyzer
+import org.derilh.analyzer.ReturnStmtAnalyzer
+import org.derilh.analyzer.Scope
+import org.derilh.analyzer.StringConcatAnalyzer
+import org.derilh.analyzer.StringLiteralAnalyzer
+import org.derilh.analyzer.TypeCastExprAnalyzer
+import org.derilh.analyzer.UnaryExprAnalyzer
+import org.derilh.analyzer.VarDeclaratorAnalyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.AbstractDeclaratorNode
 import org.derilh.ast.ArgumentsNode
@@ -47,26 +68,18 @@ import org.derilh.core.getOrElse
 import org.derilh.exceptions.ProblemLevel
 import org.derilh.exceptions.SemanticProblem
 import org.derilh.lexer.SourceLocation
+import org.derilh.semantic.AnalyzeResult
 import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
 import org.derilh.semantic.TypeContext
-import org.derilh.semantic.analyzer.ConversionSequence
-import org.derilh.semantic.analyzer.ConversionStep
-import org.derilh.semantic.analyzer.FunctionBodyAnalyzer
-import org.derilh.semantic.analyzer.FunctionDeclAnalyzer
-import org.derilh.semantic.analyzer.FunctionDefAnalyzer
-import org.derilh.semantic.analyzer.IdExpressionAnalyzer
-import org.derilh.semantic.analyzer.IdentityConversionSequence
-import org.derilh.semantic.analyzer.StdConversionSequence
-import org.derilh.semantic.analyzer.UserConversionSequence
-import org.derilh.semantic.analyzer.ViableCandidate
 import org.derilh.semantic.isFunctionPointer
 import org.derilh.target.TargetInfo
 import org.derilh.util.Printer
 import java.math.BigInteger
 import kotlin.collections.mapNotNullTo
+import kotlin.collections.plusAssign
 
-class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val printer: Printer) : AnalyzeContext {
+class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo) : AnalyzeContext {
     override var anonymousIdCounter: Int = 0;
     override val scope: Scope get() = innerScope ?: throw IllegalStateException("Not in any scope")
     override val rootScope: Scope get() = innerRootScope ?: throw IllegalStateException("Not in any scope")
@@ -197,7 +210,7 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
         }
     }
 
-    fun analyze(): Boolean {
+    fun analyze(): AnalyzeResult {
         innerRootScope = GlobalScope();
         addBuiltinOverloads(innerRootScope!!, types)
         withScope(innerRootScope!!) {
@@ -207,17 +220,7 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
         }
         innerRootScope = null
 
-        problems.values.forEach { it ->
-            it.forEach {
-                printer.printException(it)
-            }
-        }
-
-        if (problems[ProblemLevel.ERROR]!!.isEmpty()) {
-            return true
-        } else {
-            return false
-        }
+        return AnalyzeResult(problems, ast)
     }
 
     override fun enterScope(owner: DeclSymbol) {

@@ -7,6 +7,8 @@ import org.derilh.lexer.Lexer
 import org.derilh.lexer.ValueToken
 
 class Printer(val source: String, val lexer: Lexer) {
+    val lines = source.lines();
+
     companion object {
         const val BOLD = "\u001b[1m"
         const val RESET = "\u001b[0m"
@@ -21,11 +23,11 @@ class Printer(val source: String, val lexer: Lexer) {
         }
 
         val loc = e.node.location!!;
-        var line = source.getLineAtCharIndex(loc.index);
+        var line = lines[loc.line - 1]
         val builder = StringBuilder()
         var currentPos = 0
         for (token in lexer.tokenize(line)) {
-            val start = token.location.index
+            val start = token.location.column - 1
             val end = start + token.location.length
 
             if (start > currentPos) {

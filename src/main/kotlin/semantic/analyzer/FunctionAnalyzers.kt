@@ -103,7 +103,7 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
 
 class FunctionBodyAnalyzer : NodeAnalyzer<FunctionBodyNode> {
     override fun analyze(node: FunctionBodyNode, ctx: AnalyzeContext): ASTNode {
-        val ownerFun = ctx.scope.ownerSymbol as DeclSymbol.FunctionDecl;
+        val ownerFun = ctx.scope.findCurrentFunction()!!
         val needsDeduce = ownerFun.returnType.hasUndeducedAuto;
         var returnType: SemanticType? = null;
 
@@ -145,7 +145,7 @@ class FunctionBodyAnalyzer : NodeAnalyzer<FunctionBodyNode> {
             if (returnType == null) {
                 if (ownerFun.returnType == ctx.types.void) {
                     returnType = ctx.types.void
-                } else ctx.error("No return statement in function returning non-void")
+                } else ctx.warn("No return statement in function returning non-void", node)
             }
         }
 

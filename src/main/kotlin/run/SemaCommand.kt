@@ -2,21 +2,22 @@ package org.derilh.run
 
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.options.flag
-import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.choice
 import com.github.ajalt.clikt.parameters.types.path
 import org.derilh.PreProcessor
-import org.derilh.analyzer.SemanticAnalyzer
+import org.derilh.semantic.analyzer.SemanticAnalyzer
 import org.derilh.ast.Parser
+import org.derilh.exceptions.ProblemLevel
+import org.derilh.exceptions.SemanticProblem
 import org.derilh.lexer.Lexer
+import org.derilh.semantic.AnalyzeResult
 import org.derilh.target.X86_64LinuxTargetInfo
 import org.derilh.util.Printer
 import org.derilh.util.printTree
 import java.nio.file.Files
-import javax.swing.AbstractAction
-import kotlin.io.path.writeText
+import java.nio.file.Path
 
 class SemaCommand : CliktCommand(
     name = "sema",
@@ -35,26 +36,16 @@ class SemaCommand : CliktCommand(
     private val target by option("-t", "--target", help = "Target architecture").choice("x86_64Linux", "x86_32Linux", "x86_64Windows", "x86_32Windows").required()
 
     override fun run() {
-        var code = Files.readString(inputPath)
-        val preProcessor = PreProcessor();
-        code = preProcessor.preProcess(code, inputPath)
+        val code = Files.readString(inputPath);
 
-        val lexer = Lexer()
-        val tokens = lexer.tokenize(code)
-
-        val parser = Parser(tokens)
-        val ast = parser.parse();
-
-
-        val targetInfo = when(target) {
-            "x86_64Linux" -> X86_64LinuxTargetInfo();
-            else -> TODO("Target not supported yet")
+        val result = RunHelper.analyze(code, inputPath, target)
+        val printer = Printer(code, Lexer())
+        result.problems.values.forEach { it ->
+            it.forEach {
+                printer.printException(it)
+            }
         }
-
-        val printer = Printer(code, lexer);
-        val analyzer = SemanticAnalyzer(ast, targetInfo, printer);
-        analyzer.analyze();
-        if(printAst) ast.printTree()
+        if(printAst) result.ast.printTree()
     }
 }
 

@@ -214,7 +214,7 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
             Operator.DIV_ASSIGN, Operator.MOD_ASSIGN, Operator.LSHIFT_ASSIGN, Operator.RSHIFT_ASSIGN,
             Operator.BIT_AND_ASSIGN, Operator.BIT_XOR_ASSIGN, Operator.BIT_OR_ASSIGN -> {
                 if (node.left.valueCategory != ValueCategory.LVALUE) return OpResult.failure("Cannot assign to rvalue", node)
-                if (leftType.isConst) return OpResult.failure("Cannot assign to readonly type $leftType", node)
+                if (leftType.isConst) return OpResult.failure("Cannot assign to readonly type $leftType", node)sample
 
                 node.right = ctx.buildConversion(node.right, leftType, ValueCategory.PRVALUE).getOrElse { return it; }
                 node.resolvedType = node.left.resolvedType;

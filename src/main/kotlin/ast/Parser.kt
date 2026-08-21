@@ -631,7 +631,6 @@ class Parser(var tokens: List<Token>) {
             position + 1
         )
         val operator = currentToken() as OperatorToken;
-        val location = operator.location
         if (!operator.value.isBinary) throw SyntaxException(
             "Operator '${operator}' cannot be used as binary operator",
             currentToken(),
@@ -645,10 +644,22 @@ class Parser(var tokens: List<Token>) {
             operator.value.precedence
         }
 
-        val expression = parseExpression(precedence);
-        return BinaryExpressionNode(left, expression, operator.value, location)
+        val right = parseExpression(precedence);
+        return BinaryExpressionNode(left, right, operator.value, computeLocationSpan(left,right))
     }
 
+    private fun computeLocationSpan(vararg expressions: ExpressionNode?): SourceLocation {
+        val baseLine = expressions[0]!!.location!!.line
+        var latestLoc: SourceLocation = expressions[0]!!.location!!;
+        for(expr in expressions) {
+            if(expr == null || baseLine != expr.location!!.line) continue;
+            latestLoc = expr.location!!;
+        }
+
+        var length = latestLoc.column - expressions[0]!!.location!!.column + latestLoc.length
+        if(length == 0) length = 1;
+        return expressions[0]!!.location!!.copy(length = length)
+    }
 
     private fun isTypeToken(): Boolean {
         val basePos = position;
