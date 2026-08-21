@@ -1,6 +1,7 @@
 package org.derilh.run
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.multiple
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
@@ -24,6 +25,8 @@ class SemaCommand : CliktCommand(
     private val inputPath by option("-i", "--input", help = "Source file path")
         .path(mustExist = true, canBeFile = true, mustBeReadable = true)
         .required()
+
+    private val printAst by option("-ast", "--printAst", help = "Prints ast to terminal").flag()
 
     private val output by option("-o", "--output", help = "Source file path")
         .path(mustExist = false, canBeFile = true, mustBeWritable = true)
@@ -51,6 +54,7 @@ class SemaCommand : CliktCommand(
         val printer = Printer(code, lexer);
         val analyzer = SemanticAnalyzer(ast, targetInfo, printer);
         analyzer.analyze();
+        if(printAst) ast.printTree()
     }
 }
 

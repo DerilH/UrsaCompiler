@@ -1,6 +1,6 @@
 package org.derilh.core
 
-enum class PrimitiveTypeKind(val isInt: Boolean = false, val isFloat: Boolean = false, val isUnsigned: Boolean = false, val intRank: Int = -1) {
+enum class PrimitiveTypeKind(val isInt: Boolean = false, val isFloat: Boolean = false, val isUnsigned: Boolean = false, val intRank: Int = -1, val floatRank: Int = -1, val floatSubRank: Int = -1) {
     VOID,
     NULLPTR,
     BOOL(intRank = 1, isInt = true),
@@ -9,9 +9,9 @@ enum class PrimitiveTypeKind(val isInt: Boolean = false, val isFloat: Boolean = 
     SIGNED_CHAR(intRank = 2, isInt = true),
     UNSIGNED_CHAR(intRank = 2, isUnsigned = true, isInt = true),
 
-    CHAR8_T(isInt = true),
-    CHAR16_T(isInt = true),
-    CHAR32_T(isInt = true),
+    CHAR8_T(isInt = true, isUnsigned = true),
+    CHAR16_T(isInt = true, isUnsigned = true),
+    CHAR32_T(isInt = true, isUnsigned = true),
     WCHAR_T(isInt = true),
     SHORT(intRank = 3, isInt = true),
     UNSIGNED_SHORT(intRank = 3, isInt = true, isUnsigned = true),
@@ -22,9 +22,17 @@ enum class PrimitiveTypeKind(val isInt: Boolean = false, val isFloat: Boolean = 
     LONG_LONG(intRank = 6, isInt = true),
     UNSIGNED_LONG_LONG(intRank = 6, isInt = true, isUnsigned = true),
 
-    FLOAT(isFloat = true),
-    DOUBLE(isFloat = true),
-    LONG_DOUBLE(isFloat = true),
+    FLOAT(isFloat = true, floatRank = 20, floatSubRank = 1),
+    DOUBLE(isFloat = true, floatRank = 30, floatSubRank = 1),
+    LONG_DOUBLE(isFloat = true, floatRank = 40, floatSubRank = 1);
+    fun toUnsigned(): PrimitiveTypeKind = when (this) {
+        SHORT -> UNSIGNED_SHORT
+        INT -> UNSIGNED_INT
+        LONG -> UNSIGNED_LONG
+        LONG_LONG -> UNSIGNED_LONG_LONG
+        CHAR, SIGNED_CHAR -> UNSIGNED_CHAR
+        else -> this
+    }
 }
 
 data class TypeInfo(

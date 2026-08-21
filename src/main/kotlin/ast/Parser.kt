@@ -96,7 +96,7 @@ class Parser(var tokens: List<Token>) {
                     }
             }
 
-            else -> EmptyExpressionNode
+            else -> throw SyntaxException("Invalid expression provided", currentToken(), position)
         }
 
         while (precedence < nextTokenPrecedence()) {
@@ -122,7 +122,10 @@ class Parser(var tokens: List<Token>) {
         try {
             consume(Symbol.LPAREN)
             val type = parseType();
-            val declarator = parseDeclarator(type, true)
+            val declarator = parseDeclarator(type)
+            if(declarator !is AbstractDeclaratorNode) {
+                throw SyntaxException("Expected abstract declarator for cstyle cast", currentToken(), position)
+            }
             consume(Symbol.RPAREN)
             val expression = parseExpression(Precedence.UNARY)
             return TypeCastExpressionNode(CastMethod.CSTYLE, true, declarator, expression, location)
@@ -195,7 +198,7 @@ class Parser(var tokens: List<Token>) {
         position++
 
         val init = if (isTypeToken()) {
-            listOf(parseVarDeclaration())
+            listOf(parseDeclarationSeq())
         } else if (currentToken() isA Symbol.SEPARATOR) {
             parseSeparator()
             listOf()
@@ -263,30 +266,32 @@ class Parser(var tokens: List<Token>) {
         return ReturnStatementNode(parseExpression(), location)
     }
 
-    private fun parseVarDeclaration(
+    private fun parseDeclarationSeq(
         type: TypeNode? = null,
         declarators: List<DeclaratorNode>? = null
-    ): VariableDeclarationNode {
+    ): DeclarationSequenceNode {
         val location = currentToken().location
         val type = type ?: parseType()
         val decls = declarators ?: parseDeclaratorList(type)
-        return VariableDeclarationNode(type, decls, location).also { parseSeparator() }
+        return DeclarationSequenceNode(type, decls, location).also { parseSeparator() }
     }
 
-    private fun parseDeclarator(baseType: TypeNode, abstract: Boolean = false): DeclaratorNode {
+    private fun parseDeclarator(baseType: TypeNode): DeclaratorNode {
         val location = currentToken().location
         val (id, finalType) = parseDeclaratorInternal(baseType)
-        if(abstract && id != null) throw SyntaxException("Expected abstract declarator but id provided: $id", currentToken(), position)
+        if (id == null) return AbstractDeclaratorNode(finalType, location);
+
+        if (finalType is FunctionTypeNode) {
+            return FunctionDeclaratorNode(id, finalType, location);
+        }
 
         val hasAssign = consume(Operator.ASSIGN, false);
 
-        val initializer = if(!abstract && finalType !is FunctionTypeNode) {
-            if(currentToken() isA Symbol.BEGIN) parseInitializerList();
-            else if(hasAssign) parseExpression();
-            else null
-        } else null
+        val initializer = if (currentToken() isA Symbol.BEGIN) parseInitializerList();
+        else if (hasAssign) parseExpression()
+        else null
 
-        return DeclaratorNode(finalType, id, initializer, location)
+        return VariableDeclaratorNode(id, finalType, initializer, location)
     }
 
     private fun parseInitializerList(): InitializerListExpressionNode {
@@ -1091,17 +1096,14 @@ class Parser(var tokens: List<Token>) {
         return list
     }
 
-    private fun tryParseConstructor(classId: IdentifierNode): ConstructorDeclarationNode? {
+    private fun tryParseConstructor(classId: IdentifierNode): ASTNode? {
         val lastPos = position
         val location = currentToken().location
-        val declaratorNode = parseDeclarator(
-            PrimitiveTypeNode(
-                PrimitiveTypeKind.VOID,
-                isConst = false,
-                isVolatile = false,
-                location = location
-            )
-        )
+        val declaratorNode = parseDeclarator(PrimitiveTypeNode(PrimitiveTypeKind.VOID, isConst = false, isVolatile = false, location = location))
+
+        if (declaratorNode !is FunctionDeclaratorNode) {
+            throw SyntaxException("Expected declarator", currentToken(), position)
+        }
 
         if (classId != declaratorNode.id) {
             position = lastPos
@@ -1109,18 +1111,19 @@ class Parser(var tokens: List<Token>) {
         }
 
         val declType = declaratorNode.type;
-        if (declType !is FunctionTypeNode) throw SyntaxException(
-            "Invalid constructor declaration provided",
-            currentToken(),
-            position
-        )
+        if (declType !is FunctionTypeNode) throw SyntaxException("Invalid constructor declaration provided", currentToken(), position)
 
-        val memberInitializers = if (currentToken() isA Symbol.COLON) parseMemberInitializerList() else listOf()
-        val body = parseBlock()
-        return ConstructorDeclarationNode(declType, memberInitializers, body, location);
+
+        if (currentToken() isA Symbol.SEPARATOR) {
+            return ConstructorDeclarationNode(declType, location)
+        } else {
+            val memberInitializers = if (currentToken() isA Symbol.COLON) parseMemberInitializerList() else listOf()
+            val body = parseBlock()
+            return ConstructorDefinitionNode(declType, memberInitializers, body, location);
+        }
     }
 
-    private fun parseFunctionDeclaration(
+    private fun parseFunctionDefinition(
         type: TypeNode? = null,
         declarator: DeclaratorNode? = null
     ): FunctionDefinitionNode {
@@ -1128,28 +1131,28 @@ class Parser(var tokens: List<Token>) {
         val type = type ?: parseType();
         val declarator = declarator ?: parseDeclarator(type)
 
-        if (declarator.type !is FunctionTypeNode) throw SyntaxException(
-            "Invalid method declaration provided",
-            currentToken(),
-            position
-        );
-        if (declarator.id == null) throw SyntaxException(
-            "No identifier provided for method declaration",
-            currentToken(),
-            position
-        );
+        if (declarator.type !is FunctionTypeNode) throw SyntaxException("Invalid function definition provided", currentToken(), position)
+        if (declarator !is FunctionDeclaratorNode) throw SyntaxException("Expected valid function declarator for function definition", currentToken(), position)
 
         val body = FunctionBodyNode(parseBlock().statements, location);
         return FunctionDefinitionNode(declarator, body, location).also { parseSeparator(false) }
     }
 
+    private fun tryParseBlock(): AnonymousBlock? {
+        val lastPos = position;
+        try {
+            val location = currentToken().location;
+            return AnonymousBlock(parseBlock().statements, location)
+        } catch (e: Exception) {
+            position = lastPos;
+            return null;
+        }
+    }
+
     private fun parseBlock(): AnonymousBlock {
         val token = currentToken()
         val location = token.location
-        if (token isA Symbol.BEGIN) {
-            position++
-        } else throw SyntaxException("Begin symbol expected for code block", token, position)
-
+        consume(Symbol.BEGIN)
         val nodes = mutableListOf<ASTNode>()
         while (currentToken() notA Symbol.END) {
             val statement = tryParseStatement();
@@ -1162,7 +1165,7 @@ class Parser(var tokens: List<Token>) {
                 parseSeparator()
             }
         }
-        position++
+        consume(Symbol.END)
         return AnonymousBlock(nodes, location)
     }
 
@@ -1187,31 +1190,32 @@ class Parser(var tokens: List<Token>) {
             token isA Keyword.DO -> parseDoStatement()
             token isA Keyword.CONTINUE -> parseContinueStatement();
             else -> {
-                val decl = tryParseDeclaration();
-                if (decl is ClassDeclarationNode && decl.name != null) {
-                    declarations += decl.name;
+                val decl = tryParseDeclarationOrDefinition();
+                val className = (decl as? ClassDeclarationNode)?.name ?: (decl as? ClassDefinitionNode)?.name;
+                if (className != null) {
+                    declarations += className;
                 }
                 decl
             }
         }
     }
 
-    private fun tryParseDeclaration(): StatementNode {
+    private fun tryParseDeclarationOrDefinition(): StatementNode {
         val token = currentToken()
         val type = tryParseType();
         return when {
             type != null -> {
                 val declarators = parseDeclaratorList(type);
-                val decl: DeclarationNode =
+                val decl: StatementNode =
                     if (declarators.size == 1 && currentToken() isA Symbol.BEGIN) {
-                        parseFunctionDeclaration(type, declarators[0])
-                    } else parseVarDeclaration(type, declarators);
+                        parseFunctionDefinition(type, declarators[0])
+                    } else parseDeclarationSeq(type, declarators);
 //                    } else throw SyntaxException("Invalid declaration provided", tokens[nextTokenPos], position)
                 decl
             }
 
-            token isA Keyword.CLASS || token isA Keyword.STRUCT -> parseClassDeclaration()
-            token isA Keyword.NAMESPACE -> parseNamespaceDeclaration(token.location)
+            token isA Keyword.CLASS || token isA Keyword.STRUCT -> parseClass()
+            token isA Keyword.NAMESPACE -> parseNamespaceDefinition(token.location)
             else -> EmptyStatementNode
         }
     }
@@ -1278,7 +1282,7 @@ class Parser(var tokens: List<Token>) {
                     position
                 )
                 position++
-                nodes += AccessDeclarationNode(keyword, currentToken().location);
+                nodes += AccessSpecifierNode(keyword, currentToken().location);
             } else if (currentToken() is IdToken) {
                 val constructor = if (classId != null) tryParseConstructor(classId) else null
                 if (constructor == null) {
@@ -1328,6 +1332,11 @@ class Parser(var tokens: List<Token>) {
         val location = currentToken().location
         val type = parseType();
         val declarator = parseDeclarator(type);
+
+        if(declarator !is AbstractDeclaratorNode && declarator !is VariableDeclaratorNode) {
+            throw SyntaxException("Invalid parameter declaration provided", currentToken(), position)
+        }
+
         return ParameterNode(declarator, location)
     }
 
@@ -1340,7 +1349,7 @@ class Parser(var tokens: List<Token>) {
         throw SyntaxException("Invalid identifier provided ", currentToken(), position)
     }
 
-    private fun parseNamespaceDeclaration(location: SourceLocation): NamespaceDeclarationNode {
+    private fun parseNamespaceDefinition(location: SourceLocation): NamespaceDeclarationNode {
         consume(Keyword.NAMESPACE)
 
         var identifier: IdentifierNode? = null;
@@ -1353,7 +1362,7 @@ class Parser(var tokens: List<Token>) {
         return decl;
     }
 
-    private fun parseClassDeclaration(): DeclarationNode {
+    private fun parseClass(): StatementNode {
         val location = currentToken().location
         val classType = resolveClassType(currentToken());
         position++
@@ -1362,16 +1371,22 @@ class Parser(var tokens: List<Token>) {
         if (currentToken() notA Symbol.BEGIN) {
             identifier = parseSimpleIdentifier()
         }
-        val body = parseClassBody(identifier)
-        val decl = ClassDeclarationNode(identifier, classType, body, location)
-        parseSeparator(false)
-        return decl;
+
+        if(currentToken() isA Symbol.SEPARATOR) {
+            return ClassDeclarationNode(identifier, classType, location)
+        }
+        else {
+            val body = parseClassBody(identifier)
+            val decl = ClassDefinitionNode(identifier, classType, body, location)
+            parseSeparator(false)
+            return decl;
+        }
     }
 
     private fun resolveClassType(token: Token): ClassType {
-        if(token !is KeywordToken) throw SyntaxException("Invalid class type provided", token, position)
+        if (token !is KeywordToken) throw SyntaxException("Invalid class type provided", token, position)
 
-        return when(token.value) {
+        return when (token.value) {
             Keyword.CLASS -> ClassType.CLASS
             Keyword.STRUCT -> ClassType.STRUCT
             else -> throw SyntaxException("Invalid class keyword provided", token, position)

@@ -125,6 +125,16 @@ void testCStyleCast() {
 }
 
 void testEscapeSequences() {
+    int a = 'a';
+    auto c = &a;
+    c = 2.0;
+
+    int x,y = 5,z(double);
+
+    int ref = 1 + 5;
+
+    int (*(*arr[3])(int, char))[5];
+
     auto s5 = "Hello, " U"World!";
 
     char c4 = '\\';
@@ -171,29 +181,18 @@ void testInvalidStrings() {
 //     auto e8 = u8"start" "middle" L"end";
 }
 
-void testStrings() {
-    auto s1 = "Hello, " "World!";
 
-    auto s2 = "Hello, " L"World!";
-    auto s3 = "Hello, " u8"World!";
-    auto s4 = "Hello, " u"World!";
-
-    auto s6 = L"Wide " L"string " L"test";
-    auto s7 = u8"UTF-8 " u8"multiline " u8"string";
-
-//NOT SUPPORTED YET
-//     auto s8 = "Line 1\n" R"(Line 2)";
-//     auto s9 = u8"Start " u8R"(Raw UTF-8)";
-}
 
 void testPointerTypes() {
 //     int (std::MyClass::*methodPtr)(const std::string&) const;
 
+
+    int x= 1;
+    int*&& ref = &x;
+
     short a4;
 
     int* arrOfPtrs[10];
-
-    int x = 1;
 
     const int* p1 = &x;
 
@@ -207,12 +206,24 @@ void testPointerTypes() {
     const int* const* const p4 = &p3;
 
     // 5. Rvalue-ссылка (C++11) на указатель
-    int*&& ref = &x;
-
-    int (*(*arr[3])(int, char))[5];
     void (*signal(int sig, void (*func)(int)))(int);
     int (*foo(char c))[10];
     int (*arr[5])(double);
+}
+
+void testStrings() {
+    auto s1 = "Hello, " "World!";
+
+    auto s2 = "Hello, " L"World!";
+    auto s3 = "Hello, " u8"World!";
+    auto s4 = "Hello, " u"World!";
+
+    auto s6 = L"Wide " L"string " L"test";
+    auto s7 = u8"UTF-8 " u8"multiline " u8"string";
+
+//NOT SUPPORTED YET
+//     auto s8 = "Line 1\n" R"(Line 2)";
+//     auto s9 = u8"Start " u8R"(Raw UTF-8)";
 }
 //
 // class ConstructorTest {

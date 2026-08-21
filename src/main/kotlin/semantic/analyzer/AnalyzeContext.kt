@@ -28,6 +28,10 @@ interface AnalyzeContext {
     fun <T> withScope(scope: DeclSymbol, block: () -> T): T
     fun <T> withScope(scope: Scope, block: () -> T): T
     fun <T : ASTNode> findAnalyzer(node: T): NodeAnalyzer<T>
+    fun <T : ASTNode> analyze(node: T, scope: Scope): ASTNode {
+        return findAnalyzer(node).analyze(node, this);
+    }
+
     fun warn(message: String, node: ASTNode? = null)
     fun error(message: String, node: ASTNode? = null)
     fun error(failure: OpResult.Failure)
@@ -36,10 +40,11 @@ interface AnalyzeContext {
     fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope): Set<DeclSymbol>;
     fun resolveType(typeNode: TypeNode, currentScope: Scope, deduceType: SemanticType? = null, isByValue: Boolean = true): OpResult<SemanticType>;
     fun findBinaryOverload(firstOp: TypeNode, secondOp: TypeNode, operator: Operator): DeclSymbol.FunctionDecl?
-    fun resolveOpOverloads(scope: Scope, op: Operator, params: List<ExpressionInfo>): Set<ViableCandidate<DeclSymbol.OperatorFunctionDecl>>;
-    fun buildConversionNodes(base: ExpressionNode, seq: ConversionSequence): ExpressionNode;
+    fun resolveOpOverloads(scope: Scope, op: Operator, isBinary: Boolean, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo? = null): Set<ViableCandidate<DeclSymbol.OperatorFunctionDecl>>;
+    fun buildConversionSeq(base: ExpressionNode, seq: ConversionSequence): ExpressionNode;
     fun findImplicitCastSeq(fromType: SemanticType, fromVC: ValueCategory, toType: SemanticType, toVC: ValueCategory, isNullPointerConstant: Boolean): Collection<ConversionSequence>
     fun getRefValueCategory(returnType: SemanticType): ValueCategory;
+    fun buildConversion(fromExpr: ExpressionNode, to: SemanticType, toVC: ValueCategory): OpResult<ExpressionNode>;
 
     fun getNextAnonId(): Int {
         return anonymousIdCounter++;

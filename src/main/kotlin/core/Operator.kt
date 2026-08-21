@@ -36,16 +36,16 @@ enum class Operator(
     val isOverloadable: Boolean = true
 ) {
     ASSIGN("=", Precedence.ASSIGNMENT, isBinary = true),
-    ADD_EQ("+=", Precedence.ASSIGNMENT, isBinary = true),
-    MINUS_EQ("-=", Precedence.ASSIGNMENT, isBinary = true),
-    MULT_EQ("*=", Precedence.ASSIGNMENT, isBinary = true),
-    DIV_EQ("/=", Precedence.ASSIGNMENT, isBinary = true),
-    MOD_EQ("%=", Precedence.ASSIGNMENT, isBinary = true),
-    LSHIFT_EQ("<<=", Precedence.ASSIGNMENT, isBinary = true),
-    RSHIFT_EQ(">>=", Precedence.ASSIGNMENT, isBinary = true),
-    BIT_AND_EQ("&=", Precedence.ASSIGNMENT, isBinary = true),
-    BIT_XOR_EQ("^=", Precedence.ASSIGNMENT, isBinary = true),
-    BIT_OR_EQ("|=", Precedence.ASSIGNMENT, isBinary = true),
+    ADD_ASSIGN("+=", Precedence.ASSIGNMENT, isBinary = true),
+    MINUS_ASSIGN("-=", Precedence.ASSIGNMENT, isBinary = true),
+    MULT_ASSIGN("*=", Precedence.ASSIGNMENT, isBinary = true),
+    DIV_ASSIGN("/=", Precedence.ASSIGNMENT, isBinary = true),
+    MOD_ASSIGN("%=", Precedence.ASSIGNMENT, isBinary = true),
+    LSHIFT_ASSIGN("<<=", Precedence.ASSIGNMENT, isBinary = true),
+    RSHIFT_ASSIGN(">>=", Precedence.ASSIGNMENT, isBinary = true),
+    BIT_AND_ASSIGN("&=", Precedence.ASSIGNMENT, isBinary = true),
+    BIT_XOR_ASSIGN("^=", Precedence.ASSIGNMENT, isBinary = true),
+    BIT_OR_ASSIGN("|=", Precedence.ASSIGNMENT, isBinary = true),
     BIT_OR("|", Precedence.BITWISE_OR, isBinary = true),
     BIT_XOR("^", Precedence.BITWISE_XOR, isBinary = true),
     OR("||", Precedence.LOGICAL_OR, isBinary = true),
@@ -79,5 +79,9 @@ enum class Operator(
     INCREMENT("++", Precedence.POSTFIX, isUnary = true),
     DECREMENT("--", Precedence.POSTFIX, isUnary = true),
     DOT(".", Precedence.POSTFIX, isBinary = true, isOverloadable = false),
-    ARROW("->", Precedence.POSTFIX, isBinary = true)
+    ARROW("->", Precedence.POSTFIX, isBinary = true);
+
+    fun isAssignment(): Boolean {
+        return this.precedence == Precedence.ASSIGNMENT
+    }
 }

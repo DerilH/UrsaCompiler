@@ -7,7 +7,7 @@ import java.math.BigInteger
 
 abstract class TargetInfo(val types: TargetTypesInfo) {
 
-    fun promoteIntegralType(kind: PrimitiveTypeKind): PrimitiveTypeKind? {
+    fun promoteIntegralType(kind: PrimitiveTypeKind): PrimitiveTypeKind {
         if (!kind.isInt) throw IllegalArgumentException("Trying to promote non-integral type $kind")
 
         if (kind == PrimitiveTypeKind.CHAR8_T || kind == PrimitiveTypeKind.CHAR16_T || kind == PrimitiveTypeKind.CHAR32_T || kind == PrimitiveTypeKind.WCHAR_T) {
@@ -25,7 +25,7 @@ abstract class TargetInfo(val types: TargetTypesInfo) {
         } else return kind
     }
 
-    private fun canFitInType(kind: PrimitiveTypeKind, fitType: PrimitiveTypeKind): Boolean {
+    fun canFitInType(kind: PrimitiveTypeKind, fitType: PrimitiveTypeKind): Boolean {
         if (kind == PrimitiveTypeKind.BOOL) return true
 
         val typeWidth = getBitWidth(kind)

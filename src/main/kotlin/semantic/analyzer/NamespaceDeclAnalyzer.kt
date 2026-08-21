@@ -16,8 +16,7 @@ public class NamespaceDeclAnalyzer : NodeAnalyzer<NamespaceDeclarationNode> {
             } else {
                 if (node.name is QualifiedIdentifierNode) {
                     for (qual in node.name.qualifiers) {
-                        val ns = findOrCreate(qual.name, ctx, true, node, false)
-                        if (ns == null) return node
+                        val ns = findOrCreate(qual.name, ctx, true, node, false) ?: return node
                         ctx.enterScope(ns);
                         leaveCount++;
                     }

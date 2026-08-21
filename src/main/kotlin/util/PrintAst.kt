@@ -24,7 +24,11 @@ private fun ASTNode.color(): String =
 fun ASTNode.printTree(prefix: String = "", isLast: Boolean = true) {
     val connector = if (isLast) "└── " else "├── "
     val nodeColor = color()
-    println(prefix + connector + nodeColor + this.toString() + ANSI_RESET)
+    var nodeString = this.toString();
+    if(this is ExpressionNode) {
+        nodeString += " ${ANSI_RED}RESOLVED_TYPE${ANSI_RESET}: ${ANSI_BLUE}${this.resolvedType}${ANSI_RESET}"
+    }
+    println(prefix + connector + nodeColor + nodeString + ANSI_RESET)
 
     val childPrefix = prefix + if (isLast) "    " else "│   "
     children.forEachIndexed { index, child ->

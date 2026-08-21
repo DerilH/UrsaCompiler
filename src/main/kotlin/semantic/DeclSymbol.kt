@@ -2,11 +2,14 @@ package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
 import org.derilh.ast.ClassDeclarationNode
+import org.derilh.ast.ClassDefinitionNode
 import org.derilh.ast.ConstructorDeclarationNode
 import org.derilh.ast.DeclaratorNode
 import org.derilh.ast.EmptyStatementNode
+import org.derilh.ast.FunctionDeclaratorNode
 import org.derilh.ast.FunctionDefinitionNode
 import org.derilh.ast.NamespaceDeclarationNode
+import org.derilh.ast.StatementNode
 import org.derilh.core.MethodQualifiers
 import org.derilh.semantic.SemanticType
 
@@ -103,10 +106,14 @@ sealed class DeclSymbol(
             return VariableDecl(name, type, parentSymbol, declarator, isParameter = true)
         }
 
-        fun function(name: String, declarator: FunctionDefinitionNode, parentSymbol: DeclSymbol?, defaultParamCount: Int): FunctionDecl {
-            val funcType = declarator.type.resolvedType as? SemanticType.Function
-                ?: throw IllegalStateException("Function type not resolved yet");
-            return FunctionDecl(name, parentSymbol, declarator, signatureType = funcType, isMethod = false, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, defaultParamsCount = defaultParamCount)
+        fun functionDecl(name: String, decl: FunctionDeclaratorNode, parentSymbol: DeclSymbol?, defaultParamCount: Int): FunctionDecl {
+            val funcType = decl.type.resolvedType as SemanticType.Function
+            return FunctionDecl(name, parentSymbol, decl, signatureType = funcType, isMethod = false, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, defaultParamsCount = defaultParamCount)
+        }
+
+        fun functionDef(name: String, def: FunctionDefinitionNode, parentSymbol: DeclSymbol?, defaultParamCount: Int): FunctionDecl {
+            val funcType = def.type.resolvedType as SemanticType.Function
+            return FunctionDecl(name, parentSymbol, def, signatureType = funcType, isMethod = false, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, defaultParamsCount = defaultParamCount)
         }
 
         fun constructor(name: String, declarator: ConstructorDeclarationNode, parentSymbol: DeclSymbol?, defaultParamCount: Int): FunctionDecl {
@@ -116,19 +123,25 @@ sealed class DeclSymbol(
         }
 
         fun builtinOpFunction(name: String, funcType: SemanticType.Function): OperatorFunctionDecl {
-            //TODO add proper signature type for compability
+            //TODO add proper signature type for compatibility
             return OperatorFunctionDecl(name, null, EmptyStatementNode, signatureType = funcType, isMethod = false, returnType = funcType.returnType, params = funcType.params, qualifiers = MethodQualifiers(), isBuiltin = true)
         }
 
-        fun method(name: String, declarator: FunctionDefinitionNode, parentSymbol: DeclSymbol?, defaultCount: Int): FunctionDecl {
-            val funcType = declarator.type.resolvedType as? SemanticType.Function
-                ?: throw IllegalStateException("Function type not resolved yet");
-
+        fun methodDecl(name: String, declarator: FunctionDeclaratorNode, parentSymbol: DeclSymbol?, defaultCount: Int): FunctionDecl {
+            val funcType = declarator.type.resolvedType as SemanticType.Function
             return FunctionDecl(name, parentSymbol, declarator, signatureType = funcType, isMethod = true, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, defaultParamsCount = defaultCount)
         }
 
-        fun clazz(name: String, declarator: ClassDeclarationNode, parentSymbol: DeclSymbol?): ClassDecl {
-            return ClassDecl(name, parentSymbol, declarator, hasDefinition = declarator.body != null)
+        fun methodDef(name: String, declarator: FunctionDefinitionNode, parentSymbol: DeclSymbol?, defaultCount: Int): FunctionDecl {
+            val funcType = declarator.type.resolvedType as SemanticType.Function
+            return FunctionDecl(name, parentSymbol, declarator, signatureType = funcType, isMethod = true, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, defaultParamsCount = defaultCount)
+        }
+
+        fun classDecl(name: String, declarator: ClassDeclarationNode, parentSymbol: DeclSymbol?): ClassDecl {
+            return ClassDecl(name, parentSymbol, declarator, hasDefinition = false)
+        }
+        fun classDef(name: String, declarator: ClassDefinitionNode, parentSymbol: DeclSymbol?): ClassDecl {
+            return ClassDecl(name, parentSymbol, declarator, hasDefinition = true)
         }
 
         fun namespace(name: String, declarator: NamespaceDeclarationNode, parentSymbol: DeclSymbol?, isAnonymous: Boolean): NamespaceDecl {

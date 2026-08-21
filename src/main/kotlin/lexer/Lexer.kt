@@ -5,9 +5,6 @@ import org.derilh.core.Operator
 import org.derilh.core.Radix
 import org.derilh.core.Symbol
 import org.derilh.exceptions.LexerException
-import org.derilh.exceptions.SyntaxException
-import java.text.NumberFormat
-import kotlin.math.min
 
 class Lexer {
     private lateinit var input: String;
@@ -66,7 +63,7 @@ class Lexer {
             try {
                 val token =
                     if (isFloat || isDouble) {
-                        value = if(!value.last().isDigit()) value.dropLast(1) else value
+                        value = value.dropLast(1)
                         FloatToken(value, isDouble, isLong, startLoc())
                     } else {
                         if (radix == Radix.HEXADECIMAL || radix == Radix.BINARY) {
@@ -408,26 +405,21 @@ class Lexer {
                         if (lowerCur == 'f' && (isDouble || radix != Radix.HEXADECIMAL)) {
                             isFloat = true
                             isDouble = false
-                            tokenBuilder.append(input[i])
                             advance()
                             break
                         } else if (lowerCur == 'u' && !isUnsigned) {
                             isUnsigned = true
-                            tokenBuilder.append(input[i])
                             advance()
                         } else if (lowerCur == 'l') {
-                            tokenBuilder.append(input[i])
                             advance()
                             if (i < input.length && input[i].lowercaseChar() == 'l') {
                                 isLongLong = true
-                                tokenBuilder.append(input[i])
                                 advance()
                             } else {
                                 isLong = true
                             }
                         } else if (lowerCur == 'z' && !isSizeT) {
                             isSizeT = true
-                            tokenBuilder.append(input[i])
                             advance()
                         } else {
                             break
@@ -554,59 +546,59 @@ class Lexer {
             }
 
             '+' -> when (next) {
-                '=' -> Operator.ADD_EQ          // +=
+                '=' -> Operator.ADD_ASSIGN          // +=
                 '+' -> Operator.INCREMENT       // ++
                 else -> Operator.PLUS            // +
             }
 
             '-' -> when (next) {
-                '=' -> Operator.MINUS_EQ        // -=
+                '=' -> Operator.MINUS_ASSIGN        // -=
                 '-' -> Operator.DECREMENT       // --
                 '>' -> if (input.getOrNull(i + 2) == '*') Operator.ARROW_STAR else Operator.ARROW // ->* або ->
                 else -> Operator.MINUS           // -
             }
 
             '*' -> when (next) {
-                '=' -> Operator.MULT_EQ         // *=
+                '=' -> Operator.MULT_ASSIGN         // *=
                 else -> Operator.POINTER        // *
             }
 
             '/' -> when (next) {
-                '=' -> Operator.DIV_EQ          // /=
+                '=' -> Operator.DIV_ASSIGN          // /=
                 else -> Operator.DIVIDE         // /
             }
 
             '%' -> when (next) {
-                '=' -> Operator.MOD_EQ          // %=
+                '=' -> Operator.MOD_ASSIGN          // %=
                 else -> Operator.MOD            // %
             }
 
             '<' -> when (next) {
                 '=' -> if (input.getOrNull(i + 2) == '>') Operator.SPACESHIP else Operator.LESS_EQUAL // <=> або <=
-                '<' -> if (input.getOrNull(i + 2) == '=') Operator.LSHIFT_EQ else Operator.LBITSHIFT // <<= або <<
+                '<' -> if (input.getOrNull(i + 2) == '=') Operator.LSHIFT_ASSIGN else Operator.LBITSHIFT // <<= або <<
                 else -> Operator.LESS            // <
             }
 
             '>' -> when (next) {
                 '=' -> Operator.GREATER_EQUAL   // >=
-                '>' -> if (input.getOrNull(i + 2) == '=') Operator.RSHIFT_EQ else Operator.RBITSHIFT // >>= або >>
+                '>' -> if (input.getOrNull(i + 2) == '=') Operator.RSHIFT_ASSIGN else Operator.RBITSHIFT // >>= або >>
                 else -> Operator.GREATER         // >
             }
 
             '&' -> when (next) {
                 '&' -> Operator.AND             // &&
-                '=' -> Operator.BIT_AND_EQ      // &=
+                '=' -> Operator.BIT_AND_ASSIGN      // &=
                 else -> Operator.AMP            // &
             }
 
             '|' -> when (next) {
                 '|' -> Operator.OR              // ||
-                '=' -> Operator.BIT_OR_EQ       // |=
+                '=' -> Operator.BIT_OR_ASSIGN       // |=
                 else -> Operator.BIT_OR         // |
             }
 
             '^' -> when (next) {
-                '=' -> Operator.BIT_XOR_EQ      // ^=
+                '=' -> Operator.BIT_XOR_ASSIGN      // ^=
                 else -> Operator.BIT_XOR        // ^
             }
 

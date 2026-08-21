@@ -1,13 +1,14 @@
 package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
+import org.derilh.ast.AbstractDeclaratorNode
 import org.derilh.ast.ArgumentsNode
 import org.derilh.ast.ArrayTypeNode
 import org.derilh.ast.AutoTypeNode
+import org.derilh.ast.BinaryExpressionNode
 import org.derilh.ast.BooleanLiteralNode
 import org.derilh.ast.CallExpressionNode
 import org.derilh.ast.CharLiteralNode
-import org.derilh.ast.DeclaratorNode
 import org.derilh.ast.DeclaredTypeNode
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.FloatLiteralNode
@@ -32,7 +33,10 @@ import org.derilh.ast.StringLiteralNode
 import org.derilh.ast.TypeCastExpressionNode
 import org.derilh.ast.TypeNode
 import org.derilh.ast.UnaryExpressionNode
-import org.derilh.ast.VariableDeclarationNode
+import org.derilh.ast.DeclarationSequenceNode
+import org.derilh.ast.FunctionDeclaratorNode
+import org.derilh.ast.ReturnStatementNode
+import org.derilh.ast.VariableDeclaratorNode
 import org.derilh.core.ConversionKind
 import org.derilh.core.MethodQualifiers
 import org.derilh.core.OpResult
@@ -48,6 +52,9 @@ import org.derilh.semantic.SemanticType
 import org.derilh.semantic.TypeContext
 import org.derilh.semantic.analyzer.ConversionSequence
 import org.derilh.semantic.analyzer.ConversionStep
+import org.derilh.semantic.analyzer.FunctionBodyAnalyzer
+import org.derilh.semantic.analyzer.FunctionDeclAnalyzer
+import org.derilh.semantic.analyzer.FunctionDefAnalyzer
 import org.derilh.semantic.analyzer.IdExpressionAnalyzer
 import org.derilh.semantic.analyzer.IdentityConversionSequence
 import org.derilh.semantic.analyzer.StdConversionSequence
@@ -80,15 +87,24 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
         CharLiteralNode::class to CharLiteralAnalyzer(),
         StringLiteralNode::class to StringLiteralAnalyzer(),
         StringConcatExpressionNode::class to StringConcatAnalyzer(),
-        FunctionDefinitionNode::class to FunctionDeclAnalyzer(),
+        FunctionDefinitionNode::class to FunctionDefAnalyzer(),
         FunctionBodyNode::class to FunctionBodyAnalyzer(),
         NamespaceDeclarationNode::class to NamespaceDeclAnalyzer(),
-        VariableDeclarationNode::class to VarDeclAnalyzer(),
-        DeclaratorNode::class to DeclaratorAnalyzer(),
+        DeclarationSequenceNode::class to DeclarationSeqAnalyzer(),
+
+        VariableDeclaratorNode::class to VarDeclaratorAnalyzer(),
+        AbstractDeclaratorNode::class to AbstractDeclaratorAnalyzer(),
+
+        FunctionDeclaratorNode::class to FunctionDeclAnalyzer(),
+        FunctionDefinitionNode::class to FunctionDefAnalyzer(),
+        ReturnStatementNode::class to ReturnStmtAnalyzer(),
+
 
         IdExpressionNode::class to IdExpressionAnalyzer(),
         TypeCastExpressionNode::class to TypeCastExprAnalyzer(),
-        UnaryExpressionNode::class to UnaryExprAnalyzer()
+        UnaryExpressionNode::class to UnaryExprAnalyzer(),
+        BinaryExpressionNode::class to BinaryExprAnalyzer()
+
     )
 
     companion object {
@@ -148,7 +164,7 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
             add(Operator.AND, types.bool, types.bool, types.bool)
             add(Operator.OR, types.bool, types.bool, types.bool)
             add(Operator.NOT, types.bool, types.bool)
-
+//
             for (type in arithmetics) {
                 val refType = types.getReference(type)
 
@@ -163,20 +179,20 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
 
             for (type in arithmetics) {
                 val refType = types.getReference(type)
-                add(Operator.ADD_EQ, refType, refType, type)
-                add(Operator.MINUS_EQ, refType, refType, type)
-                add(Operator.MULT_EQ, refType, refType, type)
-                add(Operator.DIV_EQ, refType, refType, type)
+                add(Operator.ADD_ASSIGN, refType, refType, type)
+                add(Operator.MINUS_ASSIGN, refType, refType, type)
+                add(Operator.MULT_ASSIGN, refType, refType, type)
+                add(Operator.DIV_ASSIGN, refType, refType, type)
             }
 
             for (type in integers) {
                 val refType = types.getReference(type)
-                add(Operator.MOD_EQ, refType, refType, type)
-                add(Operator.BIT_AND_EQ, refType, refType, type)
-                add(Operator.BIT_OR_EQ, refType, refType, type)
-                add(Operator.BIT_XOR_EQ, refType, refType, type)
-                add(Operator.LSHIFT_EQ, refType, refType, types.int)
-                add(Operator.RSHIFT_EQ, refType, refType, types.int)
+                add(Operator.MOD_ASSIGN, refType, refType, type)
+                add(Operator.BIT_AND_ASSIGN, refType, refType, type)
+                add(Operator.BIT_OR_ASSIGN, refType, refType, type)
+                add(Operator.BIT_XOR_ASSIGN, refType, refType, type)
+                add(Operator.LSHIFT_ASSIGN, refType, refType, types.int)
+                add(Operator.RSHIFT_ASSIGN, refType, refType, types.int)
             }
         }
     }
@@ -459,16 +475,55 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
     }
 
 
-    override fun resolveOpOverloads(scope: Scope, op: Operator, params: List<ExpressionInfo>): Set<ViableCandidate<DeclSymbol.OperatorFunctionDecl>> {
+    override fun resolveOpOverloads(scope: Scope, op: Operator, isBinary: Boolean, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo?): Set<ViableCandidate<DeclSymbol.OperatorFunctionDecl>> {
+        //TODO: checking for visibility modifiers
         val name = "${OPERATOR_FUN_PREFIX}${op.value}"
-        val res = resolveSymbols(IdentifierNode(name, SourceLocation.EXPORTED), scope).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList()
-        if (op == Operator.AMP && params.size == 1) {
-            val paramInfo = params.first()
-            if (paramInfo.valueCategory == ValueCategory.LVALUE) {
-                res += DeclSymbol.builtinOpFunction(name, types.getFunction(types.getPointer(paramInfo.type), listOf(types.getReference(paramInfo.type)), MethodQualifiers()))
+//        val scope = resolveSymbols(IdentifierNode(name, SourceLocation.EXPORTED), scope).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList()
+        val matches = mutableListOf<ViableCandidate<DeclSymbol.OperatorFunctionDecl>>()
+
+        if(isBinary) {
+            if (rightOperand == null) throw IllegalArgumentException("Right operand is null for binary expression: $leftOperand $op")
+
+            val nonRefLeft = types.removeRef(leftOperand.type)
+            val nonRefRight = types.removeRef(rightOperand.type)
+
+            if(nonRefLeft is SemanticType.Declared) {
+                val inClass = nonRefLeft.decl.scope.lookupLocal(name).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                matches += findBestMatch(inClass, listOf(rightOperand));
+
+                val inParent = nonRefLeft.decl.scope.parent?.lookupUnqualified(name)?.filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                if(inParent != null) matches += findBestMatch(inParent, listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand));
             }
+
+            if(nonRefRight is SemanticType.Declared) {
+                val inParent = nonRefRight.decl.scope.parent?.lookupUnqualified(name)?.filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                if(inParent != null) matches += findBestMatch(inParent, listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand));
+            }
+
+            val inCurrent = scope.lookupUnqualified(name).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList();
+            matches += findBestMatch(inCurrent, listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand));
+
+        } else {
+            val nonRefType = types.removeRef(leftOperand.type)
+
+            if(nonRefType is SemanticType.Declared) {
+                val inClass = nonRefType.decl.scope.lookupLocal(name).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                matches += findBestMatch(inClass, listOfNotNull(rightOperand));
+
+                val inParent = nonRefType.decl.scope.parent?.lookupUnqualified(name)?.filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                if(inParent != null) matches += findBestMatch(inParent, listOf(leftOperand.copy(type = types.getReference(nonRefType))));
+            }
+
+            val inCurrent = scope.lookupUnqualified(name).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList();
+            if (op == Operator.AMP) {
+                if (leftOperand.valueCategory == ValueCategory.LVALUE) {
+                    inCurrent += DeclSymbol.builtinOpFunction(name, types.getFunction(types.getPointer(nonRefType), listOf(types.getReference(nonRefType)), MethodQualifiers()))
+                }
+            }
+            matches += findBestMatch(inCurrent, listOf(leftOperand.copy(type = types.getReference(nonRefType))));
+
         }
-        return findBestMatch(res, params)
+        return matches.distinctBy{ System.identityHashCode(it) }.toSet();
     }
 
     private fun resolveConstructorOverloads(classDecl: DeclSymbol.ClassDecl, params: List<ExpressionInfo>, onlyImplicit: Boolean): Set<ViableCandidate<DeclSymbol.ConstructorDecl>> {
@@ -547,7 +602,7 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
                 val underlying = toType.pointee
 
                 if (!toType.isConst) {
-                    if (fromVC == ValueCategory.LVALUE && fromType == underlying) {
+                    if (fromVC == ValueCategory.LVALUE && types.removeRef(fromType) === underlying) {
                         val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
                             ?: IdentityConversionSequence(underlying)
                         seq.bindsToTemporary = false
@@ -555,7 +610,7 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
                     }
                     return emptySet()
                 } else {
-                    if (fromVC == ValueCategory.LVALUE && fromType == underlying) {
+                    if (fromVC == ValueCategory.LVALUE && types.removeRef(fromType) === underlying) {
                         val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
                             ?: IdentityConversionSequence(underlying)
                         seq.bindsToTemporary = false
@@ -582,7 +637,7 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
                     return emptySet()
                 }
 
-                if (fromVC == ValueCategory.XVALUE && fromType == underlying) {
+                if (fromVC == ValueCategory.XVALUE && types.removeRef(fromType) == underlying) {
                     val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
                         ?: IdentityConversionSequence(underlying)
                     seq.bindsToTemporary = false
@@ -885,7 +940,7 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
         return 0
     }
 
-    override fun buildConversionNodes(base: ExpressionNode, seq: ConversionSequence): ExpressionNode {
+    override fun buildConversionSeq(base: ExpressionNode, seq: ConversionSequence): ExpressionNode {
         var node = when (seq) {
             is StdConversionSequence -> buildStdConversionNodes(base, seq)
             is UserConversionSequence -> {
@@ -906,7 +961,6 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
         return node
     }
 
-
     override fun getRefValueCategory(returnType: SemanticType): ValueCategory {
         return when (returnType) {
             is SemanticType.Reference -> ValueCategory.LVALUE
@@ -924,6 +978,16 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
     }
 
 
+    override fun buildConversion(fromExpr: ExpressionNode, to: SemanticType, toVC: ValueCategory): OpResult<ExpressionNode> {
+        val seq = findImplicitCastSeq(fromExpr.resolvedType!!, fromExpr.valueCategory!!, to, toVC, isNullPointerConstant(fromExpr))
+        if(seq.size > 1){
+            return OpResult.failure("Ambiguous cast from${fromExpr.resolvedType} to ${to}", fromExpr)
+        } else if(seq.isEmpty()) {
+            return OpResult.failure("No cast from ${fromExpr.resolvedType} to ${to}", fromExpr)
+        }
+        return OpResult.success(buildConversionSeq(fromExpr, seq.first()))
+    }
+
     override fun warn(message: String, node: ASTNode?) {
         problems[ProblemLevel.WARNING]!! += SemanticProblem(message, ProblemLevel.WARNING, node)
     }
@@ -933,7 +997,7 @@ class SemanticAnalyzer(val ast: RootNode, override val target: TargetInfo, val p
     }
 
     override fun error(failure: OpResult.Failure) {
-        error(failure.message, failure.args as? ASTNode)
+        error(failure.message, failure.args.firstOrNull() as? ASTNode)
     }
 
     data class CvQualifiers(

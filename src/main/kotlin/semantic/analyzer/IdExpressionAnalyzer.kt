@@ -15,7 +15,7 @@ class IdExpressionAnalyzer : NodeAnalyzer<IdExpressionNode> {
             resolved = ctx.resolveSymbols(node.id, ctx.scope)
         }
         if (resolved.isEmpty()) {
-            ctx.error("Could not resolve symbol: ${node.id}", node)
+            ctx.error("Could not resolve symbol: ${node.id.toDisplayString()}", node)
             return node;
         }
         val hasNonType = resolved.any { it is DeclSymbol.FunctionDecl || it is DeclSymbol.VariableDecl }

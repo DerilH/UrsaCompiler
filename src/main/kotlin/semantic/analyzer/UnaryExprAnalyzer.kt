@@ -2,9 +2,6 @@ package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
 import org.derilh.ast.ExpressionNode
-import org.derilh.ast.PointerTypeNode
-import org.derilh.ast.PrimitiveTypeNode
-import org.derilh.ast.TypeNode
 import org.derilh.ast.UnaryExpressionNode
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
@@ -38,19 +35,19 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
             var isPrimitive = false;
             val scope = when {
                 type.isPrimitive() || type.isRValueRef() && type.pointee.isPrimitive() ||type.isLValueRef() && type.pointee.isPrimitive() -> {isPrimitive = true; ctx.rootScope};
-                type.isDeclared() -> {type.decl.scope}
-                type.isRValueRef() && type.pointee.isDeclared() -> type.pointee.decl.scope;
-                type.isLValueRef() && type.pointee.isDeclared() -> type.pointee.decl.scope;
+                type.isDeclared() -> {ctx.scope}
+                type.isRValueRef() && type.pointee.isDeclared() -> ctx.scope;
+                type.isLValueRef() && type.pointee.isDeclared() -> ctx.scope;
                 else -> {
-                    ctx.error("Cannot apply operator ${node.operator} to type ${node.operand.resolvedType}")
+                    ctx.error("Cannot apply operator ${node.operator} to type ${node.operand.resolvedType}", node)
                     return node;
                 }
             }
 
-            val params = if(node.operator == Operator.INCREMENT || node.operator == Operator.DECREMENT) {
-                listOf(operandInfo, ExpressionInfo(ctx.types.int, ValueCategory.PRVALUE, false))
-            } else listOf(operandInfo)
-            val overloads = ctx.resolveOpOverloads(scope, node.operator,params)
+            val additionalParam = if(node.operator == Operator.INCREMENT || node.operator == Operator.DECREMENT) {
+                 ExpressionInfo(ctx.types.int, ValueCategory.PRVALUE, false)
+            } else null
+            val overloads = ctx.resolveOpOverloads(scope, node.operator, false, operandInfo, additionalParam)
             if(overloads.isEmpty()) {
                 ctx.error("No matching operator overloads found for '${node.operator}'", node)
             }
@@ -63,9 +60,9 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
                 node.resolvedType = overload.decl.returnType;
                 node.valueCategory = ctx.getRefValueCategory(overload.decl.returnType)
                 //TODO: check if overload is valid for primitive (maybe not needed check for empty conversion sequence;
-
+                //TODO: Add replacing of binary expression to overload call if not builtin overload
                 if(!isPrimitive) {
-                    node.operand = ctx.buildConversionNodes(node.operand,overload.sequences.first());
+                    node.operand = ctx.buildConversionSeq(node.operand,overload.sequences.first());
                 }
             }
 

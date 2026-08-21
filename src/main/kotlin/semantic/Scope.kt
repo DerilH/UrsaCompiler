@@ -1,5 +1,6 @@
 package org.derilh.analyzer
 
+import org.derilh.core.OpResult
 import org.derilh.exceptions.SemanticProblem
 
 
@@ -12,16 +13,19 @@ open class Scope(
     val symbols: Collection<DeclSymbol> get() = symbolsMap.values.flatten()
     private val usingDirectives = mutableListOf<Scope>()
 
-    fun define(symbol: DeclSymbol) {
-        val set=  symbolsMap.computeIfAbsent(symbol.name) {mutableSetOf()}
-        when(symbol) {
-            is DeclSymbol.VariableDecl -> {
-                set.clear()
-                set += symbol
+    fun define(symbol: DeclSymbol): OpResult<Unit> {
+        val set= symbolsMap.computeIfAbsent(symbol.name) {mutableSetOf()}
+
+        if (set.isEmpty() || symbol is DeclSymbol.FunctionDecl) {
+            set += symbol
+            return OpResult.success(Unit)
+        }
+        else {
+            return when (symbol) {
+                is DeclSymbol.VariableDecl -> OpResult.failure("Local variable ${symbol.name} already declared or defined", symbol.astNode)
+                is DeclSymbol.NamespaceDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
+                is DeclSymbol.ClassDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
             }
-            is DeclSymbol.NamespaceDecl -> throw IllegalStateException("Namespace cannot be redefined: ${symbol.name}")
-            is DeclSymbol.ClassDecl -> throw IllegalStateException("Class cannot be redefined: ${symbol.name}")
-            is DeclSymbol.FunctionDecl -> set += symbol
         }
     }
 
