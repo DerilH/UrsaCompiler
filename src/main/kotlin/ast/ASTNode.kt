@@ -1,34 +1,39 @@
 package org.derilh.ast
 
+import org.derilh.ast.api.*
 import org.derilh.analyzer.DeclSymbol
+import org.derilh.core.AccessSpecifier
 import org.derilh.core.ConversionKind
 import org.derilh.core.CastMethod
 import org.derilh.core.CharPrefix
 import org.derilh.core.ClassType
-import org.derilh.core.Keyword
-import org.derilh.core.MethodQualifiers
+import org.derilh.core.FunctionQualifiers
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.Radix
+import org.derilh.core.SourceLocation
 import org.derilh.core.ValueCategory
-import org.derilh.lexer.SourceLocation
 import org.derilh.semantic.SemanticType
 import org.derilh.util.Util
 import java.math.BigInteger
 import kotlin.collections.count
 import kotlin.collections.plus
 
-sealed interface ASTNode {
-    val children: List<ASTNode>
-    val location: SourceLocation?
+interface IReturnableNode {
+    var returnStatements: List<ReturnStatementNode>?
+}
+
+sealed interface ASTNode : IASTNode {
+    override val children: List<ASTNode>
+    override val location: SourceLocation?
 }
 
 data class QualifiedIdentifierNode(
-    val qualifiers: List<IdentifierNode>,
+    override val qualifiers: List<IdentifierNode>,
     override val name: String,
-    val isGlobal: Boolean,
+    override val isGlobal: Boolean,
     override val location: SourceLocation?
-) : IdentifierNode(name, location) {
+) : IdentifierNode(name, location), IQualifiedIdentifierNode {
     override val children: List<ASTNode> get() = qualifiers
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -54,7 +59,7 @@ data class QualifiedIdentifierNode(
     }
 }
 
-open class IdentifierNode(open val name: String, override val location: SourceLocation?) : ASTNode {
+open class IdentifierNode(override val name: String, override val location: SourceLocation?) : ASTNode, IIdentifierNode {
     override val children: List<ASTNode> get() = emptyList()
     override fun toString(): String {
         return "IdentifierNode('$name')"
@@ -77,11 +82,11 @@ open class IdentifierNode(open val name: String, override val location: SourceLo
 
 
 class PrimitiveTypeNode(
-    val kind: PrimitiveTypeKind,
+    override val kind: PrimitiveTypeKind,
     isConst: Boolean = false,
     isVolatile: Boolean = false,
     override val location: SourceLocation?
-) : TypeNode(isConst, isVolatile) {
+) : TypeNode(isConst, isVolatile), IPrimitiveTypeNode {
     override fun toString(): String {
         return "PrimitiveTypeNode(kind=$kind, isConst=$isConst, isVolatile=$isVolatile)"
     }
@@ -105,10 +110,10 @@ class PrimitiveTypeNode(
     }
 }
 
-class DeclaredTypeNode(val typeName: IdentifierNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(
+class DeclaredTypeNode(override val typeName: IdentifierNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(
     isConst,
     isVolatile
-) {
+), IDeclaredTypeNode {
     var classDeclaration: DeclSymbol.ClassDecl? = null
 
     override fun toString(): String =
@@ -132,7 +137,7 @@ class DeclaredTypeNode(val typeName: IdentifierNode, isConst: Boolean, isVolatil
     }
 }
 
-class AutoTypeNode(isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(isConst, isVolatile) {
+class AutoTypeNode(isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(isConst, isVolatile), IAutoTypeNode {
     override val children: List<ASTNode> get() = emptyList()
     override fun toString(): String = "AutoTypeNode(isConst=$isConst, isVolatile=$isVolatile)"
     override fun equals(other: Any?): Boolean {
@@ -151,7 +156,7 @@ class AutoTypeNode(isConst: Boolean, isVolatile: Boolean, override val location:
 //    override val children: List<ASTNode> get() = listOf(type)
 //}
 
-sealed class TypeNode(open val isConst: Boolean, val isVolatile: Boolean) : ASTNode {
+sealed class TypeNode(override val isConst: Boolean, override val isVolatile: Boolean) : ASTNode, ITypeNode {
     override val children: List<ASTNode> get() = emptyList()
     var resolvedType: SemanticType? = null
     override fun toString(): String = "${this.javaClass.simpleName}(isConst=$isConst, isVolatile=$isVolatile)"
@@ -159,8 +164,8 @@ sealed class TypeNode(open val isConst: Boolean, val isVolatile: Boolean) : ASTN
     abstract override fun hashCode(): Int;
 }
 
-class MemberPointerTypeNode(val parentId: IdentifierNode, var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) :
-    TypeNode(isConst, isVolatile) {
+class MemberPointerTypeNode(override val parentId: IdentifierNode, override var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) :
+    TypeNode(isConst, isVolatile), IMemberPointerTypeNode {
     var classDeclaration: DeclSymbol.ClassDecl? = null
     override val children: List<ASTNode> get() = listOf(parentId, type)
     override fun toString(): String =
@@ -186,7 +191,7 @@ class MemberPointerTypeNode(val parentId: IdentifierNode, var type: TypeNode, is
     }
 }
 
-class PointerTypeNode(var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(isConst, isVolatile) {
+class PointerTypeNode(override var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(isConst, isVolatile), IPointerTypeNode {
     override val children: List<ASTNode> get() = listOf(type)
     override fun toString(): String = "PointerTypeNode(isConst=$isConst, isVolatile=$isVolatile)"
     override fun equals(other: Any?): Boolean {
@@ -208,7 +213,7 @@ class PointerTypeNode(var type: TypeNode, isConst: Boolean, isVolatile: Boolean,
     }
 }
 
-class ReferenceTypeNode(var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(isConst, isVolatile) {
+class ReferenceTypeNode(override var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(isConst, isVolatile), IReferenceTypeNode {
     override val children: List<ASTNode> get() = listOf(type)
     override fun toString(): String = "ReferenceTypeNode(isConst=$isConst, isVolatile=$isVolatile)"
     override fun equals(other: Any?): Boolean {
@@ -230,8 +235,8 @@ class ReferenceTypeNode(var type: TypeNode, isConst: Boolean, isVolatile: Boolea
     }
 }
 
-class RValueReferenceTypeNode(var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) :
-    TypeNode(isConst, isVolatile) {
+class RValueReferenceTypeNode(override var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) :
+    TypeNode(isConst, isVolatile), IRValueReferenceTypeNode {
     override val children: List<ASTNode> get() = listOf(type)
     override fun toString(): String = "RValueReferenceTypeNode(isConst=$isConst, isVolatile=$isVolatile)"
     override fun equals(other: Any?): Boolean {
@@ -253,8 +258,8 @@ class RValueReferenceTypeNode(var type: TypeNode, isConst: Boolean, isVolatile: 
     }
 }
 
-class FunctionTypeNode(var returnType: TypeNode, val params: List<ParameterNode>, val qualifiers: MethodQualifiers, override val location: SourceLocation?) :
-    TypeNode(qualifiers.isConst, qualifiers.isVolatile) {
+class FunctionTypeNode(override var returnType: TypeNode, override val params: List<ParameterNode>, override val qualifiers: FunctionQualifiers, override val location: SourceLocation?) :
+    TypeNode(qualifiers.isConst, qualifiers.isVolatile), IFunctionTypeNode {
     override val children: List<ASTNode>
         get() = listOfNotNull(returnType) + params
 
@@ -291,9 +296,9 @@ class FunctionTypeNode(var returnType: TypeNode, val params: List<ParameterNode>
 }
 
 class ArrayTypeNode(
-    var elementType: TypeNode, val sizeExpression: ExpressionNode?, isConst: Boolean = false,
+    override var elementType: TypeNode, override val sizeExpression: ExpressionNode?, isConst: Boolean = false,
     isVolatile: Boolean = false, override val location: SourceLocation?
-) : TypeNode(isConst, isVolatile) {
+) : TypeNode(isConst, isVolatile), IArrayTypeNode {
     override val children: List<ASTNode>
         get() = listOf(elementType) + (sizeExpression?.let { listOf(it) } ?: emptyList())
 
@@ -323,7 +328,7 @@ class ArrayTypeNode(
     }
 }
 
-class ArrayAccessNode(val operand: ExpressionNode, val index: ExpressionNode? = null, override val location: SourceLocation?) : ExpressionNode() {
+class ArrayAccessNode(override val operand: ExpressionNode, override val index: ExpressionNode? = null, override val location: SourceLocation?) : ExpressionNode(), IArrayAccessNode {
     override val children: List<ASTNode>
         get() = listOfNotNull(operand, index)
 
@@ -331,9 +336,9 @@ class ArrayAccessNode(val operand: ExpressionNode, val index: ExpressionNode? = 
 }
 
 data class ImplicitCastExpressionNode(
-    val kind: ConversionKind,
-    var operand: ExpressionNode, override val location: SourceLocation?
-) : ExpressionNode() {
+    override val kind: ConversionKind,
+    override var operand: ExpressionNode, override val location: SourceLocation?
+) : ExpressionNode(), IImplicitCastExpressionNode {
     override val children: List<ASTNode>
         get() = listOf(operand)
 
@@ -341,80 +346,100 @@ data class ImplicitCastExpressionNode(
 }
 
 data class TypeCastExpressionNode(
-    val castType: CastMethod,
-    val explicit: Boolean,
-    val declaratorNode: DeclaratorNode,
-    var operand: ExpressionNode, override val location: SourceLocation?
-) : ExpressionNode() {
+    override val castType: CastMethod,
+    override val explicit: Boolean,
+    override val declaratorNode: DeclaratorNode,
+    override var operand: ExpressionNode, override val location: SourceLocation?
+) : ExpressionNode(), ITypeCastExpressionNode {
     override val children: List<ASTNode>
         get() = listOf(declaratorNode, operand)
 
     override fun toString(): String = "TypeCastExpressionNode(castType=$castType, explicit=$explicit)"
 }
 
-data class ParameterNode(val declarator: DeclaratorNode, override val location: SourceLocation?) : ASTNode {
+data class ParameterNode(override val declarator: DeclaratorNode, override val location: SourceLocation?) : ASTNode, IParameterNode {
     override val children: List<ASTNode> get() = listOfNotNull(declarator)
-    val name = (declarator as? NamedDeclaratorNode)?.id
-    val type = declarator.type
+    override val name = (declarator as? NamedDeclaratorNode)?.id
+    override val type = declarator.type
+    override var hasDefaultValue: Boolean = false;
 }
 
-class ClassBodyNode(declarations: List<ASTNode>, override val location: SourceLocation?) : CompoundStatementNode(declarations, location)
-class FunctionBodyNode(declarations: List<ASTNode>, override val location: SourceLocation?) : CompoundStatementNode(declarations,location) {
-    var resolveType: SemanticType? = null
+class ClassBodyNode(override val declarations: List<ASTNode>, override val location: SourceLocation?) : ASTNode, IClassBodyNode {
+    override val children: List<ASTNode> get() = declarations
+    override fun toString(): String = "ClassBodyNode"
+}
+
+class NamespaceBodyNode(override val declarations: List<ASTNode>, override val location: SourceLocation?) : ASTNode, INamespaceBodyNode {
+    override val children: List<ASTNode> get() = declarations
+    override fun toString(): String = "ClassBodyNode"
+}
+
+class FunctionBodyNode(declarations: List<ASTNode>, override val location: SourceLocation?) : CompoundStatementNode(declarations,location), IFunctionBodyNode {
     override fun toString(): String {
         return "FunctionBodyNode"
     }
 }
 
-class AnonymousBlock(declarations: List<ASTNode>, override val location: SourceLocation?) : CompoundStatementNode(declarations, location)
-
 open class CompoundStatementNode(
-    val statements: List<ASTNode>, override val location: SourceLocation?
-) : StatementNode(location) {
+    override val statements: List<ASTNode>,
+    override val location: SourceLocation?
+) : StatementNode(location), ICompoundStatementNode, IReturnableNode {
     override val children: List<ASTNode> get() = statements
+    override var returnStatements: List<ReturnStatementNode>? = null
+    override fun toString(): String = "CompoundStatementNode"
 }
 
-sealed class DeclarationNode(override val location: SourceLocation?) : StatementNode(location)
-sealed class DefinitionNode(override val location: SourceLocation?) : StatementNode(location)
+sealed class DeclarationNode(override val location: SourceLocation?) : StatementNode(location), IDeclarationNode
+sealed class DefinitionNode(override val location: SourceLocation?) : StatementNode(location), IDefinitionNode
 
 class MemberInitializerNode(
-    val id: IdentifierNode,
-    val arguments: ArgumentsNode,
-    val isBraced: Boolean, override val location: SourceLocation?
-) : ASTNode {
+    override val id: IdentifierNode,
+    override val arguments: ArgumentsNode,
+    override val isBraced: Boolean, override val location: SourceLocation?
+) : ASTNode, IMemberInitializerNode {
     override val children: List<ASTNode> get() = listOf(id) + arguments
     override fun toString(): String = "MemberInitializerNode"
 }
 
 class ConstructorDeclarationNode(
-    val type: FunctionTypeNode,
+    override val type: FunctionTypeNode,
     override val location: SourceLocation?
-) : DeclarationNode(location) {
+) : DeclarationNode(location), IConstructorDeclarationNode {
     override val children: List<ASTNode>
         get() = listOfNotNull(type)
+    override val defaultParamCount: Int
+        get() {
+            val type = type;
+            return type.params.count {(it.declarator as? VariableDeclaratorNode)?.initializer != null}
+        }
 
-    val isExplicit: Boolean = false //TODO: Add explicit modifier
+    override val isExplicit: Boolean = false //TODO: Add explicit modifier
 
     override fun toString(): String = "ConstructorDeclarationNode()"
 }
 
 class ConstructorDefinitionNode(
-    val type: FunctionTypeNode,
-    val memberInitializers: List<MemberInitializerNode>,
-    val body: StatementNode, override val location: SourceLocation?
-) : DefinitionNode(location) {
+    override val type: FunctionTypeNode,
+    override val memberInitializers: List<MemberInitializerNode>,
+    override var body: StatementNode, override val location: SourceLocation?
+) : DefinitionNode(location), IConstructorDefinitionNode {
     override val children: List<ASTNode>
         get() = listOfNotNull(type) + body + memberInitializers
 
-    val isExplicit: Boolean = false //TODO: Add explicit modifier
+    override val isExplicit: Boolean = false //TODO: Add explicit modifier
+    override val defaultParamCount: Int
+        get() {
+            val type = type;
+            return type.params.count {(it.declarator as? VariableDeclaratorNode)?.initializer != null}
+        }
 
     override fun toString(): String = "ConstructorDefinitionNode()"
 }
 
 data class FunctionDefinitionNode(
-    val declarator: FunctionDeclaratorNode,
-    var body: FunctionBodyNode, override val location: SourceLocation?
-) : DefinitionNode(location) {
+    override val declarator: FunctionDeclaratorNode,
+    override var body: FunctionBodyNode, override val location: SourceLocation?
+) : DefinitionNode(location), IFunctionDefinitionNode {
     override val children: List<ASTNode>
         get() = listOfNotNull(declarator) + body
 
@@ -426,15 +451,19 @@ data class FunctionDefinitionNode(
             declarator.type = value
         }
 
-    val name = declarator.id
+    override val name = declarator.id
 }
 
 
-abstract class ExpressionNode(var valueCategory: ValueCategory? = null) : ASTNode {
+abstract class ExpressionNode(override var valueCategory: ValueCategory? = null) : ASTNode, IExpressionNode {
     var resolvedType: SemanticType? = null
     var evaluated: Any? = null
 
     override val children: List<ASTNode> get() = emptyList()
+}
+
+class RecoveryExpressionNode(override val location: SourceLocation?) : ExpressionNode() {
+    override fun toString(): String = "RecoveryExpression"
 }
 
 object EmptyExpressionNode : ExpressionNode() {
@@ -442,10 +471,10 @@ object EmptyExpressionNode : ExpressionNode() {
         get() = null
 }
 
-open class LiteralNode<T>(val value: T, valueCategory: ValueCategory, override val location: SourceLocation?) : ExpressionNode(valueCategory) {
+open class LiteralNode<T>(override val value: T, valueCategory: ValueCategory, override val location: SourceLocation?) : ExpressionNode(valueCategory), ILiteralNode<T> {
 }
 
-class BooleanLiteralNode(value: Boolean, location: SourceLocation?) : LiteralNode<Boolean>(value, ValueCategory.PRVALUE, location) {
+class BooleanLiteralNode(value: Boolean, location: SourceLocation?) : LiteralNode<Boolean>(value, ValueCategory.PRVALUE, location), IBooleanLiteralNode {
     override fun toString(): String {
         return "BooleanLiteralNode('$value')"
     }
@@ -453,38 +482,38 @@ class BooleanLiteralNode(value: Boolean, location: SourceLocation?) : LiteralNod
 
 class IntLiteralNode(
     value: BigInteger,
-    val radix: Radix,
-    val isUnsigned: Boolean,
-    val isLong: Boolean,
-    val isLongLong: Boolean,
-    val isSizeT: Boolean, location: SourceLocation?
-) : LiteralNode<BigInteger>(value, ValueCategory.PRVALUE, location) {
+    override val radix: Radix,
+    override val isUnsigned: Boolean,
+    override val isLong: Boolean,
+    override val isLongLong: Boolean,
+    override val isSizeT: Boolean, location: SourceLocation?
+) : LiteralNode<BigInteger>(value, ValueCategory.PRVALUE, location), IIntLiteralNode {
     override fun toString(): String {
         return "IntLiteralNode('$value')"
     }
 }
 
-class FloatLiteralNode(value: String, val isDouble: Boolean, val isLong: Boolean, location: SourceLocation?) :
-    LiteralNode<String>(value, ValueCategory.PRVALUE, location) {
+class FloatLiteralNode(value: String, override val isDouble: Boolean, override val isLong: Boolean, location: SourceLocation?) :
+    LiteralNode<String>(value, ValueCategory.PRVALUE, location), IFloatLiteralNode {
     override fun toString(): String {
         return "FloatLiteralNode('$value')"
     }
 }
 
-class StringLiteralNode(value: IntArray, var prefix: CharPrefix, location: SourceLocation?) : LiteralNode<IntArray>(value, ValueCategory.LVALUE, location) {
+class StringLiteralNode(value: IntArray, override var prefix: CharPrefix, location: SourceLocation?) : LiteralNode<IntArray>(value, ValueCategory.LVALUE, location), IStringLiteralNode {
     override fun toString(): String {
         return "StringLiteralNode('${Util.codePointsToUtf16Filtered(value)}', prefix=$prefix)"
     }
 }
 
-class NullptrLiteralNode(location: SourceLocation?) : LiteralNode<Int>(0, ValueCategory.PRVALUE, location) {
+class NullptrLiteralNode(location: SourceLocation?) : LiteralNode<Int>(0, ValueCategory.PRVALUE, location), INullptrLiteralNode {
     override fun toString(): String {
         return "NullptrLiteral"
     }
 }
 
-class CharLiteralNode(value: IntArray, val prefix: CharPrefix, var isMultiChar: Boolean = false, location: SourceLocation?) :
-    LiteralNode<IntArray>(value, ValueCategory.PRVALUE, location) {
+class CharLiteralNode(value: IntArray, override val prefix: CharPrefix, override var isMultiChar: Boolean = false, location: SourceLocation?) :
+    LiteralNode<IntArray>(value, ValueCategory.PRVALUE, location), ICharLiteralNode {
     override fun toString(): String {
         return "CharLiteralNode('${Util.codePointsToUtf16Filtered(value)}')"
     }
@@ -492,7 +521,7 @@ class CharLiteralNode(value: IntArray, val prefix: CharPrefix, var isMultiChar: 
     var numericValue: ULong? = null;
 }
 
-class StringConcatExpressionNode(val literals: List<StringLiteralNode>, override val location: SourceLocation?) : ExpressionNode() {
+class StringConcatExpressionNode(override val literals: List<StringLiteralNode>, override val location: SourceLocation?) : ExpressionNode(), IStringConcatExpressionNode {
     override val children: List<ASTNode>
         get() = literals
 
@@ -501,15 +530,15 @@ class StringConcatExpressionNode(val literals: List<StringLiteralNode>, override
     }
 }
 
-class ThisExpressionNode(override val location: SourceLocation?) : ExpressionNode() {
+class ThisExpressionNode(override val location: SourceLocation?) : ExpressionNode(), IThisExpressionNode {
     override fun toString(): String = "ThisExpressionNode"
 }
 
 class NewExpressionNode(
-    val placementArgs: List<ExpressionNode>,
-    val initializerList: InitializerListExpressionNode?,
-    val type: TypeNode, override val location: SourceLocation?,
-) : ExpressionNode() {
+    override val placementArgs: List<ExpressionNode>,
+    override val initializerList: InitializerListExpressionNode?,
+    override val type: TypeNode, override val location: SourceLocation?,
+) : ExpressionNode(), INewExpressionNode {
 
 
     override val children: List<ASTNode>
@@ -518,14 +547,14 @@ class NewExpressionNode(
     override fun toString(): String = "NewExpressionNode"
 }
 
-class SizeofExpressionNode(val expression: ASTNode, override val location: SourceLocation?) : ExpressionNode() {
+class SizeofExpressionNode(override val expression: ASTNode, override val location: SourceLocation?) : ExpressionNode(), ISizeofExpressionNode {
     override val children: List<ASTNode>
         get() = listOf(expression)
 
     override fun toString(): String = "SizeofExpressionNode"
 }
 
-class IdExpressionNode(val id: IdentifierNode, override val location: SourceLocation?) : ExpressionNode(ValueCategory.LVALUE) {
+class IdExpressionNode(override val id: IdentifierNode, override val location: SourceLocation?) : ExpressionNode(ValueCategory.LVALUE), IIdExpressionNode {
     override val children: List<ASTNode> get() = listOf(id)
     var decl: DeclSymbol? = null;
 
@@ -535,46 +564,44 @@ class IdExpressionNode(val id: IdentifierNode, override val location: SourceLoca
 }
 
 class CallExpressionNode(
-    val callable: ExpressionNode?,
-    val arguments: ArgumentsNode, override val location: SourceLocation?
-) : ExpressionNode() {
+    override val callable: ExpressionNode?,
+    override val arguments: ArgumentsNode, override val location: SourceLocation?
+) : ExpressionNode(), ICallExpressionNode {
     var functionDecl: DeclSymbol.FunctionDecl? = null
     override val children: List<ASTNode> get() = listOfNotNull(callable) + arguments
     override fun toString(): String = "CallExpressionNode"
 }
 
 class CommaExpressionNode(
-    val arguments: List<ExpressionNode>, override val location: SourceLocation?
-) : ExpressionNode() {
+    override val arguments: List<ExpressionNode>, override val location: SourceLocation?
+) : ExpressionNode(), ICommaExpressionNode {
     override val children: List<ASTNode> get() = arguments
     override fun toString(): String = "CommaExpressionNode"
 }
 
 class ArgumentsNode(
-    val arguments: List<ExpressionNode>, override val location: SourceLocation?
-) : ASTNode {
+    override val arguments: List<ExpressionNode>, override val location: SourceLocation?
+) : ASTNode, IArgumentsNode {
     override val children: List<ASTNode> get() = arguments
     override fun toString(): String = "ArgumentsExpressionNode"
 }
 
 class InitializerListExpressionNode(
-    val arguments: List<ExpressionNode>, override val location: SourceLocation?
-) : ExpressionNode() {
+    override val arguments: List<ExpressionNode>, override val location: SourceLocation?
+) : ExpressionNode(), IInitializerListExpressionNode {
     override val children: List<ASTNode> get() = arguments
     override fun toString(): String = "InitializerListExpressionNode"
 }
 
 class DeclarationSequenceNode(
-    val typeSpecifier: TypeNode,
-    val declarations: List<DeclaratorNode>, location: SourceLocation?
-) : DeclarationNode(location) {
+    override val typeSpecifier: TypeNode,
+    override val declarations: List<DeclaratorNode>, location: SourceLocation?
+) : DeclarationNode(location), IDeclarationSequenceNode {
     override val children: List<ASTNode> get() = listOf(typeSpecifier) + declarations
     override fun toString(): String = "DeclarationSequenceNode"
 }
 
-
-
-class VariableDeclaratorNode(id: IdentifierNode, type: TypeNode, var initializer: ExpressionNode?, location: SourceLocation?) : NamedDeclaratorNode(id, type, location) {
+class VariableDeclaratorNode(id: IdentifierNode, type: TypeNode, override var initializer: ExpressionNode?, location: SourceLocation?) : NamedDeclaratorNode(id, type, location), IVariableDeclaratorNode {
     override val children: List<ASTNode>
         get() = super.children + listOfNotNull(initializer)
 
@@ -582,8 +609,8 @@ class VariableDeclaratorNode(id: IdentifierNode, type: TypeNode, var initializer
         return "VariableDeclaratorNode"
     }
 }
-class FunctionDeclaratorNode(id: IdentifierNode, type: FunctionTypeNode, location: SourceLocation?) : NamedDeclaratorNode(id, type, location) {
-    val defaultParamCount: Int
+class FunctionDeclaratorNode(id: IdentifierNode, type: FunctionTypeNode, location: SourceLocation?) : NamedDeclaratorNode(id, type, location), IFunctionDeclaratorNode {
+    override val defaultParamCount: Int
         get() {
             val type = type as FunctionTypeNode;
             return type.params.count {(it.declarator as? VariableDeclaratorNode)?.initializer != null}
@@ -593,77 +620,87 @@ class FunctionDeclaratorNode(id: IdentifierNode, type: FunctionTypeNode, locatio
         return "FunctionDeclaratorNode"
     }
 }
-sealed class NamedDeclaratorNode(val id: IdentifierNode, type: TypeNode, location: SourceLocation?) : DeclaratorNode(type, location) {
+sealed class NamedDeclaratorNode(override val id: IdentifierNode, type: TypeNode, location: SourceLocation?) : DeclaratorNode(type, location), INamedDeclaratorNode {
     override val children: List<ASTNode>
         get() = super.children + id
 }
-class AbstractDeclaratorNode(type: TypeNode, location: SourceLocation?) : DeclaratorNode(type, location)
+class AbstractDeclaratorNode(type: TypeNode, location: SourceLocation?) : DeclaratorNode(type, location), IAbstractDeclaratorNode
 
-sealed class DeclaratorNode(var type: TypeNode, override val location: SourceLocation?) : ASTNode {
+sealed class DeclaratorNode(override var type: TypeNode, override val location: SourceLocation?) : ASTNode, IDeclaratorNode {
     override val children: List<ASTNode>
         get() = listOfNotNull(type)
 }
 
-open class StatementNode(override val location: SourceLocation?) : ASTNode {
+open class StatementNode(override val location: SourceLocation?) : ASTNode, IStatementNode {
     override val children: List<ASTNode> get() = emptyList()
+}
+
+class RecoveryStatementNode(location: SourceLocation?) : StatementNode(location) {
+    override fun toString(): String = "RecoveryStatement"
 }
 
 object EmptyStatementNode : StatementNode(null)
 
 data class ReturnStatementNode(
-    var expression: ExpressionNode, override val location: SourceLocation?,
-) : StatementNode(location) {
-    override val children: List<ASTNode> get() = listOf(expression)
+    override var expression: ExpressionNode?, override val location: SourceLocation?,
+) : StatementNode(location), IReturnStatementNode {
+    override val children: List<ASTNode> get() = listOfNotNull(expression)
 }
 
 data class IfStatementNode(
-    var condition: ExpressionNode,
-    var body: StatementNode,
-    val elseBranch: StatementNode = EmptyStatementNode, override val location: SourceLocation?
-) : StatementNode(location) {
-    override val children: List<ASTNode> get() = listOf(condition, body, elseBranch)
+    override var condition: ExpressionNode,
+    override var body: StatementNode,
+    override var elseBody: StatementNode? = null, override val location: SourceLocation?
+) : StatementNode(location), IIfStatementNode, IReturnableNode {
+    override var returnStatements: List<ReturnStatementNode>? = null
+    override val children: List<ASTNode> get() = listOfNotNull(condition, body, elseBody)
 }
 
-class BreakStatementNode(location: SourceLocation?) : StatementNode(location) {
+class BreakStatementNode(location: SourceLocation?) : StatementNode(location), IBreakStatementNode {
     override fun toString(): String = "BreakStatementNode"
 }
 
-class ContinueStatementNode(location: SourceLocation?) : StatementNode(location) {
+class ContinueStatementNode(location: SourceLocation?) : StatementNode(location), IContinueStatementNode {
     override fun toString(): String = "ContinueStatementNode"
 }
 
-class WhileStatementNode(var condition: ASTNode, val body: StatementNode, location: SourceLocation?) : StatementNode(location) {
+class WhileStatementNode(override var condition: ASTNode, override val body: StatementNode, location: SourceLocation?) : StatementNode(location), IWhileStatementNode, IReturnableNode {
     override val children: List<ASTNode> get() = listOf(condition, body)
+    override var returnStatements: List<ReturnStatementNode>? = null
 }
 
-class DoStatementNode(val body: StatementNode, var condition: ASTNode, location: SourceLocation?) : StatementNode(location) {
+class DoStatementNode(override val body: StatementNode, override var condition: ASTNode, location: SourceLocation?) : StatementNode(location), IDoStatementNode, IReturnableNode {
     override val children: List<ASTNode> get() = listOf(body, condition)
+    override var returnStatements: List<ReturnStatementNode>? = null
+
 }
 
 class ForStatementNode(
-    var initializer: List<ASTNode>,
-    var condition: ExpressionNode,
-    var increment: List<ExpressionNode>,
-    var body: StatementNode, location: SourceLocation?
-) : StatementNode(location) {
+    override var initializer: List<ASTNode>,
+    override var condition: ExpressionNode,
+    override var increment: List<ExpressionNode>,
+    override var body: StatementNode, location: SourceLocation?
+) : StatementNode(location), IForStatementNode, IReturnableNode {
     override val children: List<ASTNode> get() = initializer + condition + increment + body
+    override var returnStatements: List<ReturnStatementNode>? = null
 }
 
 class BinaryExpressionNode(
-    var left: ExpressionNode,
-    var right: ExpressionNode,
-    val operator: Operator, override val location: SourceLocation?,
-) : ExpressionNode() {
+    override var left: ExpressionNode,
+    override var right: ExpressionNode,
+    override val operator: Operator, override val location: SourceLocation?,
+) : ExpressionNode(), IBinaryExpressionNode {
+    /**May be builtin or user defined**/
     var functionDecl: DeclSymbol.FunctionDecl? = null
     override val children: List<ASTNode> get() = listOf(left, right)
     override fun toString(): String = "BinaryExpressionNode(operator='${operator.value}')"
 }
 
 data class UnaryExpressionNode(
-    var operand: ExpressionNode,
-    val operator: Operator,
-    val isPrefix: Boolean, override val location: SourceLocation?
-) : ExpressionNode() {
+    override var operand: ExpressionNode,
+    override val operator: Operator,
+    override val isPrefix: Boolean, override val location: SourceLocation?
+) : ExpressionNode(), IUnaryExpressionNode {
     /**May be builtin or user defined**/
     var functionDecl: DeclSymbol.FunctionDecl? = null
     override val children: List<ASTNode> get() = listOf(operand)
@@ -671,30 +708,30 @@ data class UnaryExpressionNode(
 }
 
 class NamespaceDeclarationNode(
-    val name: IdentifierNode?,
-    val body: CompoundStatementNode, location: SourceLocation?
-) : DefinitionNode(location) {
-    val isAnonymous = name == null
+    override val name: IdentifierNode?,
+    override val body: NamespaceBodyNode, location: SourceLocation?
+) : DefinitionNode(location), INamespaceDeclarationNode {
+    override val isAnonymous = name == null
     override val children: List<ASTNode>
         get() = listOfNotNull(name) + body
 }
 
 class ClassDeclarationNode(
-    val name: IdentifierNode?,
-    val type: ClassType,
+    override val name: IdentifierNode?,
+    override val type: ClassType,
     location: SourceLocation?
-) : DeclarationNode(location) {
+) : DeclarationNode(location), IClassDeclarationNode {
 
     override val children: List<ASTNode>
         get() = listOfNotNull(name)
 }
 
 class ClassDefinitionNode(
-    val name: IdentifierNode?,
-    val type: ClassType,
-    val body: ClassBodyNode,
+    override val name: IdentifierNode?,
+    override val type: ClassType,
+    override val body: ClassBodyNode,
     location: SourceLocation?
-) : DefinitionNode(location) {
+) : DefinitionNode(location), IClassDefinitionNode {
 
     override val children: List<ASTNode>
         get() = listOfNotNull(name) + body
@@ -705,14 +742,14 @@ class ClassDefinitionNode(
 }
 
 class AccessSpecifierNode(
-    val access: Keyword, override val location: SourceLocation?
-) : ASTNode {
-    override fun toString(): String = "AccessSpecifierNode(type='${access.value}')"
+    override val specifier: AccessSpecifier, override val location: SourceLocation?
+) : ASTNode, IAccessSpecifierNode {
+    override fun toString(): String = "AccessSpecifierNode(type='${specifier}')"
     override val children: List<ASTNode> = emptyList();
 }
 
 data class RootNode(
-    val declarations: List<ASTNode>, override val location: SourceLocation = SourceLocation.EXPORTED
-) : ASTNode {
+    override val declarations: List<ASTNode>, override val location: SourceLocation = SourceLocation.EXPORTED
+) : ASTNode, IRootNode {
     override val children: List<ASTNode> get() = declarations
 }

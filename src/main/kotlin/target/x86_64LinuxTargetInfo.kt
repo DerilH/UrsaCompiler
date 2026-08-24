@@ -42,5 +42,5 @@ private val types = TargetTypesInfo(
     maxLongDouble = BigDecimal("1.189731495357231765085759326628007016196477e4932")
 )
 
-class X86_64LinuxTargetInfo : TargetInfo(types = types
+object X86_64LinuxTargetInfo : TargetInfo(types = types
 )

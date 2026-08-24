@@ -1,6 +1,8 @@
 package org.derilh.util
 
 import org.derilh.ast.*
+import org.derilh.ast.api.IASTNode
+import java.awt.Color
 
 private const val ANSI_RESET = "\u001B[0m"
 private const val ANSI_RED = "\u001B[31m"
@@ -10,7 +12,7 @@ private const val ANSI_BLUE = "\u001B[34m"
 private const val ANSI_CYAN = "\u001B[36m"
 private const val ANSI_PURPLE = "\u001B[35m"
 
-private fun ASTNode.color(): String =
+private fun IASTNode.color(): String =
     when (this) {
         is RootNode -> ANSI_PURPLE
         is DeclarationNode -> ANSI_BLUE
@@ -21,7 +23,7 @@ private fun ASTNode.color(): String =
         else -> ANSI_RESET
     }
 
-fun ASTNode.printTree(prefix: String = "", isLast: Boolean = true) {
+fun IASTNode.printTree(prefix: String = "", isLast: Boolean = true) {
     val connector = if (isLast) "└── " else "├── "
     val nodeColor = color()
     var nodeString = this.toString();

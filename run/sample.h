@@ -2,6 +2,7 @@
 #include <iostream>
 
 int main() {
+
      int asdf = "asd";
      return "f";
 }
@@ -121,7 +122,6 @@ void testEscapeSequences() {
     int a = 'a';
     auto c = &a;
     c = 2.0;
-
 
     c = 2.0;
     int x,y = 5,z(double);

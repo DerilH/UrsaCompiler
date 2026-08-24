@@ -5,7 +5,6 @@ import org.derilh.analyzer.ClassScope
 import org.derilh.analyzer.DeclSymbol
 import org.derilh.analyzer.NodeAnalyzer
 import org.derilh.ast.ASTNode
-import org.derilh.ast.ClassDeclarationNode
 import org.derilh.ast.FunctionBodyNode
 import org.derilh.ast.FunctionDeclaratorNode
 import org.derilh.ast.FunctionDefinitionNode
@@ -14,36 +13,13 @@ import org.derilh.ast.ParameterNode
 import org.derilh.ast.QualifiedIdentifierNode
 import org.derilh.ast.ReturnStatementNode
 import org.derilh.ast.VariableDeclaratorNode
-import org.derilh.core.MethodQualifiers
+import org.derilh.core.FunctionQualifiers
 import org.derilh.core.RefQualifier
+import org.derilh.core.getOrElse
 import org.derilh.core.ifFailure
 import org.derilh.semantic.SemanticType
 
-private fun analyzeParams(params: List<ParameterNode>, ctx: AnalyzeContext) {
-    var hasDefault = false;
-    for (param in params) {
-        if (param.name == null) continue
-        if (param.name is QualifiedIdentifierNode) {
-            ctx.error("Qualified identifiers are not allowed as parameter names")
-            continue
-        }
-
-        ctx.analyze(param.declarator, ctx.scope)
-
-        val init = (param.declarator as? VariableDeclaratorNode)?.initializer;
-        if (init != null) {
-            hasDefault = true;
-            ctx.findAnalyzer(init).analyze(init, ctx)
-        } else if (hasDefault) {
-            ctx.error("Missing default value on parameter ${param.name}", node = param)
-        }
-
-
-        ctx.scope.define(DeclSymbol.param(param.name.name, param.declarator, ctx.scope.ownerSymbol))
-    }
-}
-
-private fun checkMethodQualifiers(decl: DeclSymbol.FunctionDecl, qual: MethodQualifiers, ctx: AnalyzeContext) {
+private fun checkMethodQualifiers(decl: DeclSymbol.FunctionDecl, qual: FunctionQualifiers, ctx: AnalyzeContext) {
     if (!decl.isMethod) {
         if (qual.isConst || qual.isVolatile || qual.refQualifier != RefQualifier.NONE) {
             ctx.error("Function declaration cannot have cv-qualifiers and ref-qualifiers")
@@ -56,15 +32,27 @@ class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclaratorNode> {
         //TODO: maybe need to check is node.id.name is unqualified-id for declaration only
         ctx.resolveType(node.type, ctx.scope).ifFailure(ctx::error)
         val decl = if (ctx.scope is ClassScope) {
+            if(node.id.name == (ctx.scope.ownerSymbol as DeclSymbol.ClassDecl).name) {
+                ctx.error("Constructor cannot have a return type", node)
+                return node;
+            }
             DeclSymbol.methodDecl(node.id.name, node, ctx.scope.ownerSymbol, node.defaultParamCount);
         } else {
             DeclSymbol.functionDecl(node.id.name, node, ctx.scope.ownerSymbol, node.defaultParamCount);
         }
 
+
         ctx.scope.define(decl)
         val type = node.type as FunctionTypeNode
         return ctx.withScope(decl) {
-            analyzeParams(type.params, ctx)
+            var hasDefault = false;
+            for (param in type.params) {
+                ctx.analyze(param, ctx.scope)
+                if(hasDefault && !param.hasDefaultValue) {
+                    ctx.error("Missing default value on parameter ${param.name}", node = param)
+                }
+                else hasDefault = hasDefault || param.hasDefaultValue;
+            }
             checkMethodQualifiers(decl, type.qualifiers, ctx)
             node;
         }
@@ -85,71 +73,61 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
         ctx.scope.define(decl)
 
         return ctx.withScope(decl) {
-            analyzeParams(node.type.params, ctx)
+            var hasDefault = false;
+            for (param in node.type.params) {
+                ctx.analyze(param, ctx.scope)
+                if(hasDefault && !param.hasDefaultValue) {
+                    ctx.error("Missing default value on parameter ${param.name}", node = param)
+                }
+                else hasDefault = hasDefault || param.hasDefaultValue;
+            }
             checkMethodQualifiers(decl, node.type.qualifiers, ctx)
 
             node.body = ctx.findAnalyzer(node.body).analyze(node.body, ctx) as FunctionBodyNode;
-            val bodyRet = node.body.resolveType
-            if (bodyRet != null) {
-                ctx.resolveType(node.type.returnType, ctx.scope, bodyRet).ifFailure {
-                    ctx.error(it)
+            val bodyRets = node.body.returnStatements
+            if (bodyRets != null) {
+                var funcType = ctx.resolveType(node.type.returnType, ctx.scope, null).getOrElse { ctx.error(it); return@withScope node; }
+                val type = analyzeReturns(bodyRets, decl, ctx) ?: ctx.types.void;
+                if(funcType.hasUndeducedAuto) {
+                    funcType = ctx.resolveType(node.type.returnType, ctx.scope, type).getOrElse { ctx.error(it); return@withScope  node; }
                 }
             }
-
             node;
         }
     }
-}
 
-class FunctionBodyAnalyzer : NodeAnalyzer<FunctionBodyNode> {
-    override fun analyze(node: FunctionBodyNode, ctx: AnalyzeContext): ASTNode {
-        val ownerFun = ctx.scope.findCurrentFunction()!!
-        val needsDeduce = ownerFun.returnType.hasUndeducedAuto;
+    fun analyzeReturns(
+        returns: List<ReturnStatementNode>,
+        funcDecl: DeclSymbol.FunctionDecl,
+        ctx: AnalyzeContext
+    ): SemanticType? {
+        val needsDeduce = funcDecl.returnType.hasUndeducedAuto;
         var returnType: SemanticType? = null;
 
-        for (child in node.statements) {
-            if (child is FunctionDefinitionNode) {
-                ctx.error("Inner function are not supported yet", child)
-                continue;
-            }
-            if (child is ClassDeclarationNode) {
-                ctx.error("Inner classes are not supported yet", child)
-                continue;
-            }
+        if (returns.isEmpty()) return ctx.types.void;
 
-            ctx.findAnalyzer(child).analyze(child, ctx)
-            if (child is ReturnStatementNode) {
-                if (returnType != null && !ctx.isSameType(returnType, child.expression.resolvedType!!)) {
-                    if (needsDeduce) {
-                        ctx.error(
-                            "'auto' in return type deduced as ${returnType} earlier but here deduced as ${child.expression.resolvedType}",
-                            child
-                        )
-                        returnType = child.expression.resolvedType;
-                    } else {
-                        ctx.error("Return type ${returnType} is not compatible with ${child.expression.resolvedType}", child)
-                    }
+        for (ret in returns) {
+            val retType = ret.expression?.resolvedType ?: ctx.types.void;
+            if (returnType != null && ctx.types.removeRef(returnType) !== ctx.types.removeRef(retType)) {
+                if (needsDeduce) {
+                    ctx.error(
+                        "'auto' in return type deduced as ${returnType} earlier but here deduced as ${retType}",
+                        ret
+                    )
+                    returnType = retType;
                 } else {
-                    returnType = child.expression.resolvedType;
+                    ctx.error("Return type ${returnType} is not compatible with ${retType}", ret)
                 }
+            } else {
+                returnType = retType;
             }
         }
-
-
-
-        if (needsDeduce) {
-            if (returnType == null) {
-                returnType = ctx.types.void
-            }
-        } else {
-            if (returnType == null) {
-                if (ownerFun.returnType == ctx.types.void) {
-                    returnType = ctx.types.void
-                } else ctx.warn("No return statement in function returning non-void", node)
-            }
-        }
-
-        node.resolveType = returnType
-        return node;
+        return returnType;
     }
 }
+
+//class FunctionBodyAnalyzer : NodeAnalyzer<FunctionBodyNode> {
+//    override fun analyze(node: FunctionBodyNode, ctx: AnalyzeContext): ASTNode {
+//
+//    }
+//}

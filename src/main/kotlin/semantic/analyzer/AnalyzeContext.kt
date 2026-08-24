@@ -22,11 +22,16 @@ interface AnalyzeContext {
     val scope: Scope
     val rootScope: Scope
     val types: TypeContext
-    fun enterScope(owner: DeclSymbol)
-    fun enterScope(owner: Scope)
-    fun leaveScope()
-    fun <T> withScope(scope: DeclSymbol, block: () -> T): T
-    fun <T> withScope(scope: Scope, block: () -> T): T
+//    fun enterScope(owner: DeclSymbol)
+//    fun enterScope(owner: Scope)
+//    fun enterScope()
+//    fun leaveScope()
+//    fun <T> withScope(scope: DeclSymbol, block: () -> T): T
+//    fun <T> withScope(scope: Scope, block: () -> T): T
+//    fun <T> withScope(block: () -> T): T
+//    fun enterRootScope() {
+//    fun leaveRootScope() {
+
     fun <T : ASTNode> findAnalyzer(node: T): NodeAnalyzer<T>
     fun <T : ASTNode> analyze(node: T, scope: Scope): ASTNode {
         return findAnalyzer(node).analyze(node, this);

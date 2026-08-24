@@ -1,4 +1,4 @@
-package org.derilh.lexer
+package org.derilh.core
 
 data class SourceLocation(val line: Int, val column: Int, val length: Int, val file: String? = null) {
     companion object {

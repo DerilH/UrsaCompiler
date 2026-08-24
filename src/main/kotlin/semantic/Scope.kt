@@ -1,7 +1,7 @@
 package org.derilh.analyzer
 
 import org.derilh.core.OpResult
-import org.derilh.exceptions.SemanticProblem
+import org.derilh.core.AccessSpecifier
 
 
 open class Scope(
@@ -10,10 +10,9 @@ open class Scope(
 ) {
     protected val symbolsMap = mutableMapOf<String, MutableSet<DeclSymbol>>()
 
-    val symbols: Collection<DeclSymbol> get() = symbolsMap.values.flatten()
     private val usingDirectives = mutableListOf<Scope>()
 
-    fun define(symbol: DeclSymbol): OpResult<Unit> {
+    open fun define(symbol: DeclSymbol): OpResult<Unit> {
         val set= symbolsMap.computeIfAbsent(symbol.name) {mutableSetOf()}
 
         if (set.isEmpty() || symbol is DeclSymbol.FunctionDecl) {
@@ -59,6 +58,28 @@ class ClassScope(
     parent: Scope?,
     ownerClass: DeclSymbol.ClassDecl,
 ) : Scope(parent = parent, ownerSymbol = ownerClass) {
+    private var currentAccessSpecifier: AccessSpecifier = ownerClass.getDefaultVisibility()
+    private val symbolsByVisibilityMap = mutableMapOf<String, Map<AccessSpecifier, MutableSet<DeclSymbol>>>()
+
+    override fun define(symbol: DeclSymbol): OpResult<Unit> {
+        val map = symbolsByVisibilityMap.computeIfAbsent(symbol.name) {mutableMapOf()} as MutableMap<AccessSpecifier, MutableSet<DeclSymbol>>
+        val set = map.computeIfAbsent(currentAccessSpecifier) {mutableSetOf()}
+        val set1 = symbolsMap.computeIfAbsent(symbol.name) {mutableSetOf()}
+
+        if (set.isEmpty() || symbol is DeclSymbol.FunctionDecl) {
+            set += symbol
+            set1 += symbol
+            return OpResult.success(Unit)
+        }
+        else {
+            return when (symbol) {
+                is DeclSymbol.VariableDecl -> OpResult.failure("Local variable ${symbol.name} already declared or defined", symbol.astNode)
+                is DeclSymbol.NamespaceDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
+                is DeclSymbol.ClassDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
+            }
+        }
+    }
+
     fun lookupMember(name: String): Set<DeclSymbol> {
         val local = symbolsMap[name]
         if (local != null) return local
@@ -75,6 +96,10 @@ class ClassScope(
     }
 
     fun lookupUnqualifiedInMethod(name: String): Set<DeclSymbol> = lookupMember(name).ifEmpty { parent?.lookupUnqualified(name) ?: emptySet()}
+
+    fun setAccessSpecifier(specifier: AccessSpecifier) {
+        currentAccessSpecifier = specifier
+    }
 }
 
 class GlobalScope : Scope()

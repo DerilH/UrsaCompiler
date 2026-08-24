@@ -3,6 +3,7 @@ package org.derilh.lexer
 import org.derilh.core.CharPrefix
 import org.derilh.core.Operator
 import org.derilh.core.Radix
+import org.derilh.core.SourceLocation
 import org.derilh.core.Symbol
 import org.derilh.exceptions.LexerException
 

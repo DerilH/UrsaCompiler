@@ -23,7 +23,7 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
 
         if(varType.hasUndeducedAuto) {
             if(init == null) {
-                ctx.error("Declaration with 'auto' requires an initializer", init)
+                ctx.error("Declaration with 'auto' requires an initializer", node)
             } else ctx.error("Cannot initialize 'auto' with an expression", init)
             return node;
         } else if(varType !== initType && initType != null) {

@@ -1,7 +1,7 @@
 package org.derilh.semantic
 
 import org.derilh.analyzer.DeclSymbol
-import org.derilh.core.MethodQualifiers
+import org.derilh.core.FunctionQualifiers
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.RefQualifier
 import org.derilh.semantic.SemanticType.Declared
@@ -140,7 +140,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun hashCode(): Int = Objects.hash(elementType, size)
     }
 
-    class Function internal constructor(val returnType: SemanticType, val params: List<SemanticType>, val qualifiers: MethodQualifiers, key: TypeContext.Key) : SemanticType(qualifiers.isConst, qualifiers.isVolatile, key) {
+    class Function internal constructor(val returnType: SemanticType, val params: List<SemanticType>, val qualifiers: FunctionQualifiers, key: TypeContext.Key) : SemanticType(qualifiers.isConst, qualifiers.isVolatile, key) {
         override val isComplete: Boolean = true
 
         override fun dropCV(key: TypeContext.Key): SemanticType = this

@@ -6,7 +6,7 @@ enum class RefQualifier {
     RVALUE  // &&
 };
 
-data class MethodQualifiers (
+data class FunctionQualifiers (
     val isConst: Boolean = false,
     val isVolatile: Boolean = false,
     val refQualifier: RefQualifier= RefQualifier.NONE,

@@ -26,7 +26,7 @@ public class NamespaceDeclAnalyzer : NodeAnalyzer<NamespaceDeclarationNode> {
             }
 
             return ctx.withScope(decl.scope) {
-                for (statement in node.body.statements) {
+                for (statement in node.body.declarations) {
                     ctx.findAnalyzer(statement).analyze(statement, ctx)
                 }
                 node

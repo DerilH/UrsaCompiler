@@ -49,7 +49,7 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
             rightType.isDeclared() || leftType.isDeclared() -> {
                 val overloads = ctx.resolveOpOverloads(ctx.scope, node.operator, true, leftInfo, rightInfo)
                 if (overloads.size > 1) OpResult.failure("Ambiguous operator overload for type ${leftType} and ${rightType}", node)
-                else if (overloads.size == 1) OpResult.failure("No operator overload for type ${leftType} and ${rightType}", node)
+                else if (overloads.isEmpty()) OpResult.failure("No operator overload for type ${leftType} and ${rightType}", node)
                 else {
                     val over = overloads.first();
                     node.left = ctx.buildConversionSeq(node.left, over.sequences[0])
@@ -214,7 +214,7 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
             Operator.DIV_ASSIGN, Operator.MOD_ASSIGN, Operator.LSHIFT_ASSIGN, Operator.RSHIFT_ASSIGN,
             Operator.BIT_AND_ASSIGN, Operator.BIT_XOR_ASSIGN, Operator.BIT_OR_ASSIGN -> {
                 if (node.left.valueCategory != ValueCategory.LVALUE) return OpResult.failure("Cannot assign to rvalue", node)
-                if (leftType.isConst) return OpResult.failure("Cannot assign to readonly type $leftType", node)sample
+                if (leftType.isConst) return OpResult.failure("Cannot assign to readonly type $leftType", node)
 
                 node.right = ctx.buildConversion(node.right, leftType, ValueCategory.PRVALUE).getOrElse { return it; }
                 node.resolvedType = node.left.resolvedType;

@@ -4,20 +4,23 @@ import org.derilh.ast.ASTNode
 import org.derilh.ast.ClassDeclarationNode
 import org.derilh.ast.ClassDefinitionNode
 import org.derilh.ast.ConstructorDeclarationNode
+import org.derilh.ast.ConstructorDefinitionNode
 import org.derilh.ast.DeclaratorNode
 import org.derilh.ast.EmptyStatementNode
 import org.derilh.ast.FunctionDeclaratorNode
 import org.derilh.ast.FunctionDefinitionNode
 import org.derilh.ast.NamespaceDeclarationNode
-import org.derilh.ast.StatementNode
-import org.derilh.core.MethodQualifiers
+import org.derilh.core.ClassType
+import org.derilh.core.FunctionQualifiers
+import org.derilh.core.AccessSpecifier
 import org.derilh.semantic.SemanticType
 
 sealed class DeclSymbol(
     val name: String,
     val parentSymbol: DeclSymbol?,
-    val astNode: ASTNode
 ) {
+    var astNode: ASTNode? = null
+
     val qualifiedName: String
         get() {
             if (parentSymbol == null || parentSymbol.name.isEmpty()) return name
@@ -27,9 +30,8 @@ sealed class DeclSymbol(
     class NamespaceDecl(
         name: String,
         parentSymbol: DeclSymbol?,
-        firstNode: ASTNode,
         val isAnonymous: Boolean = false
-    ) : DeclSymbol(name, parentSymbol, firstNode) {
+    ) : DeclSymbol(name, parentSymbol) {
         lateinit var scope: Scope
         val declarations: MutableList<ASTNode> = mutableListOf()
     }
@@ -38,10 +40,16 @@ sealed class DeclSymbol(
         name: String,
         parentSymbol: DeclSymbol?,
         astNode: ASTNode,
+        val type: ClassType,
         var hasDefinition: Boolean
 //        val baseClasses: MutableList<ClassDecl> = mutableListOf()
-    ) : DeclSymbol(name, parentSymbol, astNode) {
+    ) : DeclSymbol(name, parentSymbol) {
         lateinit var scope: ClassScope
+
+        fun getDefaultVisibility(): AccessSpecifier = when(type) {
+            ClassType.STRUCT,ClassType.UNION -> AccessSpecifier.PUBLIC
+            ClassType.CLASS -> AccessSpecifier.PRIVATE
+        }
     }
 
     class VariableDecl(
@@ -60,10 +68,10 @@ sealed class DeclSymbol(
         val signatureType: SemanticType.Function,
         val returnType: SemanticType,
         val params: List<SemanticType>,
-        val qualifiers: MethodQualifiers,
+        val qualifiers: FunctionQualifiers,
         val isMethod: Boolean,
         val isBuiltin: Boolean = false,
-        val defaultParamsCount: Int
+        val defaultParamsCount: Int,
     ) : DeclSymbol(name, parentSymbol, astNode) {
         lateinit var scope: Scope
     }
@@ -75,7 +83,7 @@ sealed class DeclSymbol(
         signatureType: SemanticType.Function,
         returnType: SemanticType,
         params: List<SemanticType>,
-        qualifiers: MethodQualifiers,
+        qualifiers: FunctionQualifiers,
         isMethod: Boolean,
         isBuiltin: Boolean = false
     ) : FunctionDecl(name, parentSymbol, astNode, signatureType, returnType, params, qualifiers, isMethod, isBuiltin, 0)
@@ -83,11 +91,11 @@ sealed class DeclSymbol(
     class ConstructorDecl(
         name: String,
         parentSymbol: DeclSymbol?,
-        astNode: ConstructorDeclarationNode,
+        astNode: ASTNode,
         signatureType: SemanticType.Function,
         returnType: SemanticType,
         params: List<SemanticType>,
-        qualifiers: MethodQualifiers,
+        qualifiers: FunctionQualifiers,
         isBuiltin: Boolean,
         val isExplicit: Boolean,
         defaultParamsCount: Int
@@ -116,15 +124,19 @@ sealed class DeclSymbol(
             return FunctionDecl(name, parentSymbol, def, signatureType = funcType, isMethod = false, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, defaultParamsCount = defaultParamCount)
         }
 
-        fun constructor(name: String, declarator: ConstructorDeclarationNode, parentSymbol: DeclSymbol?, defaultParamCount: Int): FunctionDecl {
-            val funcType = declarator.type.resolvedType as? SemanticType.Function
-                ?: throw IllegalStateException("Function type not resolved yet");
+        fun constructorDecl(name: String, declarator: ConstructorDeclarationNode, parentSymbol: DeclSymbol?, defaultParamCount: Int): FunctionDecl {
+            val funcType = declarator.type.resolvedType as SemanticType.Function
+            return ConstructorDecl(name, parentSymbol, declarator, signatureType = funcType, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, isExplicit = declarator.isExplicit, isBuiltin = false, defaultParamsCount = defaultParamCount)
+        }
+
+        fun constructorDef(name: String, declarator: ConstructorDefinitionNode, parentSymbol: DeclSymbol?, defaultParamCount: Int): FunctionDecl {
+            val funcType = declarator.type.resolvedType as SemanticType.Function
             return ConstructorDecl(name, parentSymbol, declarator, signatureType = funcType, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, isExplicit = declarator.isExplicit, isBuiltin = false, defaultParamsCount = defaultParamCount)
         }
 
         fun builtinOpFunction(name: String, funcType: SemanticType.Function): OperatorFunctionDecl {
             //TODO add proper signature type for compatibility
-            return OperatorFunctionDecl(name, null, EmptyStatementNode, signatureType = funcType, isMethod = false, returnType = funcType.returnType, params = funcType.params, qualifiers = MethodQualifiers(), isBuiltin = true)
+            return OperatorFunctionDecl(name, null, EmptyStatementNode, signatureType = funcType, isMethod = false, returnType = funcType.returnType, params = funcType.params, qualifiers = FunctionQualifiers(), isBuiltin = true)
         }
 
         fun methodDecl(name: String, declarator: FunctionDeclaratorNode, parentSymbol: DeclSymbol?, defaultCount: Int): FunctionDecl {
@@ -137,11 +149,11 @@ sealed class DeclSymbol(
             return FunctionDecl(name, parentSymbol, declarator, signatureType = funcType, isMethod = true, returnType = funcType.returnType, params = funcType.params, qualifiers = funcType.qualifiers, defaultParamsCount = defaultCount)
         }
 
-        fun classDecl(name: String, declarator: ClassDeclarationNode, parentSymbol: DeclSymbol?): ClassDecl {
-            return ClassDecl(name, parentSymbol, declarator, hasDefinition = false)
+        fun classDecl(name: String, classType: ClassType, parentSymbol: DeclSymbol?): ClassDecl {
+            return ClassDecl(name, parentSymbol, classType, hasDefinition = false)
         }
-        fun classDef(name: String, declarator: ClassDefinitionNode, parentSymbol: DeclSymbol?): ClassDecl {
-            return ClassDecl(name, parentSymbol, declarator, hasDefinition = true)
+        fun classDef(name: String, declarator: ClassDefinitionNode, classType: ClassType, parentSymbol: DeclSymbol?): ClassDecl {
+            return ClassDecl(name, parentSymbol, declarator, classType, hasDefinition = true)
         }
 
         fun namespace(name: String, declarator: NamespaceDeclarationNode, parentSymbol: DeclSymbol?, isAnonymous: Boolean): NamespaceDecl {

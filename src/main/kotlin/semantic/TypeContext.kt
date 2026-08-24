@@ -1,7 +1,7 @@
 package org.derilh.semantic
 
 import org.derilh.analyzer.DeclSymbol
-import org.derilh.core.MethodQualifiers
+import org.derilh.core.FunctionQualifiers
 import org.derilh.core.PrimitiveTypeKind
 
 class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind) {
@@ -82,7 +82,7 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
         return intern(SemanticType.MemberPointer(classDecl, pointee, isConst,isVolatile, key))
     }
 
-    fun getFunction(returnType: SemanticType, params: List<SemanticType>, qualifiers: MethodQualifiers): SemanticType.Function {
+    fun getFunction(returnType: SemanticType, params: List<SemanticType>, qualifiers: FunctionQualifiers): SemanticType.Function {
         return intern(SemanticType.Function(returnType, params, qualifiers, key))
     }
 

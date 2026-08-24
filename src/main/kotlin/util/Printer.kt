@@ -2,6 +2,7 @@ package org.derilh.util
 
 import org.derilh.exceptions.ProblemLevel
 import org.derilh.exceptions.SemanticProblem
+import org.derilh.exceptions.SyntaxProblem
 import org.derilh.lexer.KeywordToken
 import org.derilh.lexer.Lexer
 import org.derilh.lexer.ValueToken
@@ -16,13 +17,44 @@ class Printer(val source: String, val lexer: Lexer) {
         const val LITERAL_COLOR = "\u001b[1;32m"
     }
 
+    fun printException(e: SyntaxProblem) {
+
+        val loc = e.location;
+        var line = lines[loc.line - 1]
+        val builder = StringBuilder()
+        var currentPos = 0
+        for (token in lexer.tokenize(line)) {
+            val start = token.location.column - 1
+            val end = start + token.location.length
+
+            if (start > currentPos) {
+                builder.append(line.substring(currentPos, start))
+            }
+
+            val tokenText = line.substring(start, end)
+            val color = when(token) {
+                is KeywordToken -> KEYWORD_COLOR
+                is ValueToken<*> -> LITERAL_COLOR
+                else -> RESET;
+            }
+            builder.append("$color$tokenText\u001b[0m")
+            currentPos = end
+        }
+        line = builder.toString();
+        val outStr = "${loc.file}:${loc.line}:${loc.column}: ${e.level.toString().withColor(e.level)}: ${e.msg.withBold()}\n " +
+                "  ${loc.line} |$line\n" +
+                "  ${" ".repeat(loc.line.toString().length)}  |${" ".repeat(loc.column - 1)}${"^".withColor(LITERAL_COLOR)}"
+
+        println(outStr)
+    }
+
     fun printException(e: SemanticProblem) {
-        if (e.node == null || e.node.location == null) {
+        if (e.node == null || e.node?.location == null) {
             println(e.msg)
             return
         }
 
-        val loc = e.node.location!!;
+        val loc = e.node!!.location!!;
         var line = lines[loc.line - 1]
         val builder = StringBuilder()
         var currentPos = 0

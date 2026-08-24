@@ -40,12 +40,17 @@ class SemaCommand : CliktCommand(
 
         val result = RunHelper.analyze(code, inputPath, target)
         val printer = Printer(code, Lexer())
-        result.problems.values.forEach { it ->
+        result.second.problems.values.forEach { it ->
             it.forEach {
                 printer.printException(it)
             }
         }
-        if(printAst) result.ast.printTree()
+        result.first.problems.values.forEach { it ->
+            it.forEach {
+                printer.printException(it)
+            }
+        }
+        if(printAst) result.second.ast.printTree()
     }
 }
 

@@ -7,9 +7,11 @@ import com.github.ajalt.clikt.parameters.types.path
 import org.derilh.PreProcessor
 import org.derilh.ast.Parser
 import org.derilh.lexer.Lexer
+import org.derilh.semantic.analyzer.SemanticAnalyzer
+import org.derilh.target.TargetInfo
+import org.derilh.target.X86_64LinuxTargetInfo
 import org.derilh.util.printTree
 import java.nio.file.Files
-import kotlin.io.path.writeText
 
 class ParseCommand : CliktCommand(
     name = "parser",
@@ -30,12 +32,12 @@ class ParseCommand : CliktCommand(
         val lexer = Lexer()
         val tokens = lexer.tokenize(code)
 
-        val parser = Parser(tokens)
-        val ast = parser.parse();
+        val parser = Parser(tokens, SemanticAnalyzer(X86_64LinuxTargetInfo))
+        val parseResult = parser.parse();
         if(output != null) {
             TODO("Ast output to file not supported yet")
         } else {
-            ast.printTree();
+            parseResult.root.printTree();
         }
     }
 }
