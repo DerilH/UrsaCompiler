@@ -23,7 +23,6 @@ class ParameterNodeAnalyzer : NodeAnalyzer<ParameterNode> {
             ctx.findAnalyzer(init).analyze(init, ctx)
             node.hasDefaultValue = true;
         }
-        ctx.scope.define(DeclSymbol.param(node.name.name, node.declarator, ctx.scope.ownerSymbol))
         return node;
     }
 }

@@ -9,14 +9,10 @@ import org.derilh.ast.FunctionBodyNode
 import org.derilh.ast.FunctionDeclaratorNode
 import org.derilh.ast.FunctionDefinitionNode
 import org.derilh.ast.FunctionTypeNode
-import org.derilh.ast.ParameterNode
-import org.derilh.ast.QualifiedIdentifierNode
 import org.derilh.ast.ReturnStatementNode
-import org.derilh.ast.VariableDeclaratorNode
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.RefQualifier
 import org.derilh.core.getOrElse
-import org.derilh.core.ifFailure
 import org.derilh.semantic.SemanticType
 
 private fun checkMethodQualifiers(decl: DeclSymbol.FunctionDecl, qual: FunctionQualifiers, ctx: AnalyzeContext) {
@@ -30,21 +26,24 @@ private fun checkMethodQualifiers(decl: DeclSymbol.FunctionDecl, qual: FunctionQ
 class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclaratorNode> {
     override fun analyze(node: FunctionDeclaratorNode, ctx: AnalyzeContext): ASTNode {
         //TODO: maybe need to check is node.id.name is unqualified-id for declaration only
-        ctx.resolveType(node.type, ctx.scope).ifFailure(ctx::error)
-        val decl = if (ctx.scope is ClassScope) {
+        val signatureType = ctx.resolveType(node.type, ctx.scope).getOrElse{ ctx.error(it); return node; }
+        if(signatureType.hasUndeducedAuto) {
+            ctx.error("Cannot deduce return type from function declaration", node)
+            return node;
+        }
+
+        node.functionDecl.signatureType = signatureType as SemanticType.Function
+        node.functionDecl.processed = true;
+
+        if (ctx.scope is ClassScope) {
             if(node.id.name == (ctx.scope.ownerSymbol as DeclSymbol.ClassDecl).name) {
                 ctx.error("Constructor cannot have a return type", node)
                 return node;
             }
-            DeclSymbol.methodDecl(node.id.name, node, ctx.scope.ownerSymbol, node.defaultParamCount);
-        } else {
-            DeclSymbol.functionDecl(node.id.name, node, ctx.scope.ownerSymbol, node.defaultParamCount);
         }
 
-
-        ctx.scope.define(decl)
         val type = node.type as FunctionTypeNode
-        return ctx.withScope(decl) {
+        return ctx.withScope(node.functionDecl.scope) {
             var hasDefault = false;
             for (param in type.params) {
                 ctx.analyze(param, ctx.scope)
@@ -53,7 +52,7 @@ class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclaratorNode> {
                 }
                 else hasDefault = hasDefault || param.hasDefaultValue;
             }
-            checkMethodQualifiers(decl, type.qualifiers, ctx)
+            checkMethodQualifiers(node.functionDecl, type.qualifiers, ctx)
             node;
         }
     }
@@ -64,15 +63,16 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
     override fun analyze(node: FunctionDefinitionNode, ctx: AnalyzeContext): ASTNode {
         //TODO: maybe need check for redefinitions
         ctx.analyze(node.declarator, ctx.scope)
-        val decl = if (ctx.scope is ClassScope) {
-            DeclSymbol.methodDef(node.name.name, node, ctx.scope.ownerSymbol, node.declarator.defaultParamCount);
-        } else {
-            DeclSymbol.functionDef(node.name.name, node, ctx.scope.ownerSymbol, node.declarator.defaultParamCount);
+        if (ctx.scope is ClassScope) {
+            if(node.name.name == (ctx.scope.ownerSymbol as DeclSymbol.ClassDecl).name) {
+                ctx.error("Constructor cannot have a return type", node)
+                return node;
+            }
         }
 
-        ctx.scope.define(decl)
+        node.functionDecl.processed = true;
 
-        return ctx.withScope(decl) {
+        return ctx.withScope(node.functionDecl.scope) {
             var hasDefault = false;
             for (param in node.type.params) {
                 ctx.analyze(param, ctx.scope)
@@ -81,17 +81,20 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
                 }
                 else hasDefault = hasDefault || param.hasDefaultValue;
             }
-            checkMethodQualifiers(decl, node.type.qualifiers, ctx)
+            checkMethodQualifiers(node.functionDecl, node.type.qualifiers, ctx)
 
             node.body = ctx.findAnalyzer(node.body).analyze(node.body, ctx) as FunctionBodyNode;
             val bodyRets = node.body.returnStatements
+            var funcType = ctx.resolveType(node.type, ctx.scope, null).getOrElse { ctx.error(it); return@withScope node; }
+            funcType as SemanticType.Function
             if (bodyRets != null) {
-                var funcType = ctx.resolveType(node.type.returnType, ctx.scope, null).getOrElse { ctx.error(it); return@withScope node; }
-                val type = analyzeReturns(bodyRets, decl, ctx) ?: ctx.types.void;
-                if(funcType.hasUndeducedAuto) {
-                    funcType = ctx.resolveType(node.type.returnType, ctx.scope, type).getOrElse { ctx.error(it); return@withScope  node; }
+                val bodyReturnType = analyzeReturns(bodyRets, node.functionDecl, ctx) ?: ctx.types.void;
+
+                if(funcType.returnType.hasUndeducedAuto) {
+                    funcType = ctx.resolveType(node.type, ctx.scope, ctx.types.getFunction(bodyReturnType, funcType.params, funcType.qualifiers)).getOrElse { ctx.error(it); return@withScope  node; }
                 }
             }
+            node.functionDecl.signatureType = funcType as SemanticType.Function;
             node;
         }
     }

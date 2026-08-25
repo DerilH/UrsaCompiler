@@ -17,8 +17,8 @@ class ClassDeclAnalyzer : NodeAnalyzer<ClassDeclarationNode> {
             ctx.error("Anonymous classes are not supported yet", node)
             return node;
         }
+        node.classDecl.processed = true;
 
-        ctx.scope.define(DeclSymbol.classDecl(name.name, node, node.type, ctx.scope.ownerSymbol))
         return node;
     }
 
@@ -31,9 +31,9 @@ class ClassDefAnalyzer : NodeAnalyzer<ClassDefinitionNode> {
             ctx.error("Anonymous classes are not supported yet", node)
             return node;
         }
-        val decl = DeclSymbol.classDef(name.name, node, node.type, ctx.scope.ownerSymbol)
-        ctx.scope.define(decl)
-        ctx.withScope(decl) {
+
+        node.classDecl.processed = true;
+        ctx.withScope(node.classDecl.scope) {
             ctx.analyze(node.body, ctx.scope)
         }
         return node;

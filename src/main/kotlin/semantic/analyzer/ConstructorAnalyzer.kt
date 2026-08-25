@@ -31,12 +31,9 @@ class ConstructorDeclAnalyzer : NodeAnalyzer<ConstructorDeclarationNode> {
             ctx.error("Constructor declaration outside of class", node)
             return node;
         }
-        val decl = DeclSymbol.constructorDecl(classDecl.name, node, ctx.scope.ownerSymbol, node.defaultParamCount);
-        classDecl.scope.define(decl)
 
-        ctx.scope.define(decl)
         val type = node.type;
-        return ctx.withScope(decl) {
+        return ctx.withScope(node.ctorDecl.scope) {
             var hasDefault = false;
             for (param in node.type.params) {
                 ctx.analyze(param, ctx.scope)
@@ -45,7 +42,7 @@ class ConstructorDeclAnalyzer : NodeAnalyzer<ConstructorDeclarationNode> {
                 }
                 else hasDefault = hasDefault || param.hasDefaultValue;
             }
-            checkMethodQualifiers(decl, type.qualifiers, ctx)
+            checkMethodQualifiers(node.ctorDecl, type.qualifiers, ctx)
             node;
         }
     }
@@ -61,12 +58,8 @@ class ConstructorDefAnalyzer : NodeAnalyzer<ConstructorDefinitionNode> {
             ctx.error("Constructor declaration outside of class", node)
             return node;
         }
-        val decl = DeclSymbol.constructorDef(classDecl.name, node, ctx.scope.ownerSymbol, node.defaultParamCount);
-        classDecl.scope.define(decl)
-
-        ctx.scope.define(decl)
         val type = node.type;
-        return ctx.withScope(decl) {
+        return ctx.withScope(node.ctorDecl.scope) {
             var hasDefault = false;
             for (param in node.type.params) {
                 ctx.analyze(param, ctx.scope)
@@ -78,7 +71,7 @@ class ConstructorDefAnalyzer : NodeAnalyzer<ConstructorDefinitionNode> {
 
             node.body = ctx.analyze(node.body, ctx.scope) as StatementNode
             ctx.error("Implement constructor member init analyzer", node)
-            checkMethodQualifiers(decl, type.qualifiers, ctx)
+            checkMethodQualifiers(node.ctorDecl, type.qualifiers, ctx)
             node;
         }
     }

@@ -25,26 +25,28 @@ class IfStatementAnalyzer : NodeAnalyzer<IfStatementNode> {
 
 
         val returns = mutableListOf<ReturnStatementNode>()
-        ctx.withScope {
-            node.body = ctx.analyze(node.body, ctx.scope) as StatementNode;
+        ctx.withScope(node.scope) {
+            ctx.withScope(node.bodyScope) {
+                node.body = ctx.analyze(node.body, ctx.scope) as StatementNode;
 
-            val body = node.body;
-            if (body !is CompoundStatementNode) {
-                throw IllegalStateException("If statement body must be compound statement")
+                val body = node.body;
+                if (body !is CompoundStatementNode) {
+                    throw IllegalStateException("If statement body must be compound statement")
+                }
+                if (body.returnStatements != null) {
+                    returns += body.returnStatements!!
+                }
             }
-            if(body.returnStatements != null) {
-                returns += body.returnStatements!!
-            }
-        }
-        ctx.withScope {
             val elseBody = node.elseBody;
             if (elseBody != null) {
-                if(elseBody !is CompoundStatementNode) {
-                    throw IllegalStateException("Else body must be compound statement")
-                } else {
-                    node.elseBody = ctx.analyze(elseBody, ctx.scope) as StatementNode;
-                    if(elseBody.returnStatements != null) {
-                        returns += elseBody.returnStatements!!
+                ctx.withScope(node.elseBodyScope!!) {
+                    if (elseBody !is CompoundStatementNode) {
+                        throw IllegalStateException("Else body must be compound statement")
+                    } else {
+                        node.elseBody = ctx.analyze(elseBody, ctx.scope) as StatementNode;
+                        if (elseBody.returnStatements != null) {
+                            returns += elseBody.returnStatements!!
+                        }
                     }
                 }
             }

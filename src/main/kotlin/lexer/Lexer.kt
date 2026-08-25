@@ -19,7 +19,7 @@ class Lexer {
         var col = 1
         var startLine = 1
         var startCol = 1
-        var currentFile: String? = null
+        var currentFile: String = "unknown"
 
         fun advance() {
             if (i < input.length) {

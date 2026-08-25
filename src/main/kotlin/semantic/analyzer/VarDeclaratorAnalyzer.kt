@@ -20,6 +20,8 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
             ctx.error(it)
             return node
         }
+        node.varDecl.type = varType
+        node.varDecl.processed = true;
 
         if(varType.hasUndeducedAuto) {
             if(init == null) {
@@ -37,7 +39,6 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
             }
         }
 
-        ctx.scope.define(DeclSymbol.variable(node.id.name, node, ctx.scope.ownerSymbol)).ifFailure(ctx::error)
         return node;
     }
 }

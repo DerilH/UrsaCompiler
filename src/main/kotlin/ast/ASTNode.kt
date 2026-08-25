@@ -2,6 +2,8 @@ package org.derilh.ast
 
 import org.derilh.ast.api.*
 import org.derilh.analyzer.DeclSymbol
+import org.derilh.analyzer.GlobalScope
+import org.derilh.analyzer.Scope
 import org.derilh.core.AccessSpecifier
 import org.derilh.core.ConversionKind
 import org.derilh.core.CastMethod
@@ -405,6 +407,8 @@ class ConstructorDeclarationNode(
     override val type: FunctionTypeNode,
     override val location: SourceLocation?
 ) : DeclarationNode(location), IConstructorDeclarationNode {
+    lateinit var ctorDecl: DeclSymbol.ConstructorDecl;
+
     override val children: List<ASTNode>
         get() = listOfNotNull(type)
     override val defaultParamCount: Int
@@ -423,6 +427,8 @@ class ConstructorDefinitionNode(
     override val memberInitializers: List<MemberInitializerNode>,
     override var body: StatementNode, override val location: SourceLocation?
 ) : DefinitionNode(location), IConstructorDefinitionNode {
+    lateinit var ctorDecl: DeclSymbol.ConstructorDecl;
+
     override val children: List<ASTNode>
         get() = listOfNotNull(type) + body + memberInitializers
 
@@ -440,6 +446,7 @@ data class FunctionDefinitionNode(
     override val declarator: FunctionDeclaratorNode,
     override var body: FunctionBodyNode, override val location: SourceLocation?
 ) : DefinitionNode(location), IFunctionDefinitionNode {
+    lateinit var functionDecl: DeclSymbol.FunctionDecl;
     override val children: List<ASTNode>
         get() = listOfNotNull(declarator) + body
 
@@ -602,6 +609,8 @@ class DeclarationSequenceNode(
 }
 
 class VariableDeclaratorNode(id: IdentifierNode, type: TypeNode, override var initializer: ExpressionNode?, location: SourceLocation?) : NamedDeclaratorNode(id, type, location), IVariableDeclaratorNode {
+    lateinit var varDecl: DeclSymbol.VariableDecl;
+
     override val children: List<ASTNode>
         get() = super.children + listOfNotNull(initializer)
 
@@ -610,6 +619,7 @@ class VariableDeclaratorNode(id: IdentifierNode, type: TypeNode, override var in
     }
 }
 class FunctionDeclaratorNode(id: IdentifierNode, type: FunctionTypeNode, location: SourceLocation?) : NamedDeclaratorNode(id, type, location), IFunctionDeclaratorNode {
+    lateinit var functionDecl: DeclSymbol.FunctionDecl;
     override val defaultParamCount: Int
         get() {
             val type = type as FunctionTypeNode;
@@ -652,6 +662,10 @@ data class IfStatementNode(
     override var body: StatementNode,
     override var elseBody: StatementNode? = null, override val location: SourceLocation?
 ) : StatementNode(location), IIfStatementNode, IReturnableNode {
+    lateinit var scope: Scope;
+    lateinit var bodyScope: Scope;
+    var elseBodyScope: Scope? = null;
+
     override var returnStatements: List<ReturnStatementNode>? = null
     override val children: List<ASTNode> get() = listOfNotNull(condition, body, elseBody)
 }
@@ -711,6 +725,8 @@ class NamespaceDeclarationNode(
     override val name: IdentifierNode?,
     override val body: NamespaceBodyNode, location: SourceLocation?
 ) : DefinitionNode(location), INamespaceDeclarationNode {
+    lateinit var nsDecl: DeclSymbol.NamespaceDecl;
+
     override val isAnonymous = name == null
     override val children: List<ASTNode>
         get() = listOfNotNull(name) + body
@@ -721,6 +737,7 @@ class ClassDeclarationNode(
     override val type: ClassType,
     location: SourceLocation?
 ) : DeclarationNode(location), IClassDeclarationNode {
+    lateinit var classDecl: DeclSymbol.ClassDecl;
 
     override val children: List<ASTNode>
         get() = listOfNotNull(name)
@@ -732,6 +749,7 @@ class ClassDefinitionNode(
     override val body: ClassBodyNode,
     location: SourceLocation?
 ) : DefinitionNode(location), IClassDefinitionNode {
+    lateinit var classDecl: DeclSymbol.ClassDecl;
 
     override val children: List<ASTNode>
         get() = listOfNotNull(name) + body
@@ -751,5 +769,6 @@ class AccessSpecifierNode(
 data class RootNode(
     override val declarations: List<ASTNode>, override val location: SourceLocation = SourceLocation.EXPORTED
 ) : ASTNode, IRootNode {
+    lateinit var scope: GlobalScope;
     override val children: List<ASTNode> get() = declarations
 }

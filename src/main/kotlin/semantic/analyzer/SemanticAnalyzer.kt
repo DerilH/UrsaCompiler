@@ -9,7 +9,6 @@ import org.derilh.analyzer.CharLiteralAnalyzer
 import org.derilh.analyzer.ClassBodyAnalyzer
 import org.derilh.analyzer.ClassDeclAnalyzer
 import org.derilh.analyzer.ClassDefAnalyzer
-import org.derilh.analyzer.ClassScope
 import org.derilh.analyzer.CompoundStatementAnalyzer
 import org.derilh.analyzer.DeclSymbol
 import org.derilh.analyzer.DeclarationSeqAnalyzer
@@ -249,66 +248,44 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
 
     fun analyze(ast: RootNode): AnalyzeResult {
 
+        enterRootScope(ast.scope)
         for (child in ast.declarations) {
             findAnalyzer(child).analyze(child, this)
         }
-
+        leaveRootScope()
 
         return AnalyzeResult(problems, ast)
     }
 //
-//    override fun enterScope(owner: DeclSymbol) {
-//        val scope = when (owner) {
-//            is DeclSymbol.ClassDecl -> ClassScope(innerScope, owner).also { owner.scope = it }
-//            is DeclSymbol.FunctionDecl -> Scope(innerScope, owner).also { owner.scope = it }
-//            is DeclSymbol.NamespaceDecl -> Scope(innerScope, owner).also { owner.scope = it }
-//            else -> throw IllegalArgumentException("Invalid scope owner")
-//        }
-//        enterScope(scope)
-//    }
+    override fun enterScope() {
+        enterScope(Scope(innerScope, null))
+    }
 //
-//    override fun enterScope() {
-//        enterScope(Scope(innerScope, null))
-//    }
-//
-//    override fun enterScope(owner: Scope) {
-//        innerScope = owner
-//    }
-//
-//    fun enterRootScope() {
-//        innerRootScope = GlobalScope();
-//        innerScope = innerRootScope;
-//    }
-//
-//    fun leaveRootScope() {
-//        innerRootScope = null;
-//        innerScope = null;
-//    }
-//
-//
-//    override fun leaveScope() {
-//        if (innerScope == null) throw IllegalStateException("Already outside of any scope")
-//        innerScope = innerScope!!.parent
-//    }
-//
-//    override fun <T> withScope(scope: DeclSymbol, block: () -> T): T {
-//        enterScope(scope)
-//        try {
-//            return block()
-//        } finally {
-//            leaveScope()
-//        }
-//    }
-//
-//    override fun <T> withScope(scope: Scope, block: () -> T): T {
-//        enterScope(scope)
-//        try {
-//            return block()
-//        } finally {
-//            leaveScope()
-//        }
-//    }
-//
+    override fun enterScope(owner: Scope) {
+        innerScope = owner
+    }
+    override fun enterRootScope(scope: GlobalScope) {
+        innerRootScope = GlobalScope();
+        innerScope = innerRootScope;
+    }
+    override fun leaveRootScope() {
+        innerRootScope = null;
+        innerScope = null;
+    }
+
+
+    override fun leaveScope() {
+        if (innerScope == null) throw IllegalStateException("Already outside of any scope")
+        innerScope = innerScope!!.parent
+    }
+    override fun <T> withScope(scope: Scope, block: () -> T): T {
+        enterScope(scope)
+        try {
+            return block()
+        } finally {
+            leaveScope()
+        }
+    }
 //    override fun <T> withScope(block: () -> T): T {
 //        return withScope(Scope(innerScope, null), block)
 //    }
@@ -335,18 +312,22 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
         return null
     }
 
-    override fun resolveSymbols(node: IdentifierNode, currentScope: Scope): Set<DeclSymbol> {
+    override fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean): Set<DeclSymbol> {
         return when (node) {
             is QualifiedIdentifierNode -> resolveQualified(node, currentScope)
-            else -> currentScope.lookupUnqualified(node.name)
+            else -> currentScope.lookupUnqualified(node.name, processedOnly)
         }
     }
 
-    override fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope): Set<DeclSymbol> {
+    override fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean): Set<DeclSymbol> {
         return when (node) {
             is QualifiedIdentifierNode -> emptySet()
-            else -> currentScope.lookupLocal(node.name)
+            else -> currentScope.lookupLocal(node.name, processedOnly)
         }
+    }
+
+    override fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean): Set<DeclSymbol> {
+        return currentScope.lookupUnqualified(node, processedOnly)
     }
 
     private fun resolveQualified(node: QualifiedIdentifierNode, currentScope: Scope): Set<DeclSymbol> {
@@ -358,7 +339,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
             startIndex = 0
         } else {
             val firstQualifier = node.qualifiers.first().name
-            val firstFound = currentScope.lookupUnqualified(firstQualifier)
+            val firstFound = resolveSymbolsUnqualified(firstQualifier, currentScope)
             searchScopes = firstFound.mapNotNull(::getScopeFromSymbol)
             startIndex = 1
         }
@@ -366,12 +347,12 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
         for (i in startIndex until node.qualifiers.size) {
             val qualifierName = node.qualifiers[i].name
 
-            val symbols = searchScopes.flatMap { it.lookupLocal(qualifierName) }
+            val symbols = searchScopes.flatMap { it.lookupLocal(qualifierName, true) }
             searchScopes = symbols.mapNotNull(::getScopeFromSymbol)
             if (searchScopes.isEmpty()) return emptySet()
         }
 
-        return searchScopes.flatMapTo(mutableSetOf()) { it.lookupLocal(node.name) }
+        return searchScopes.flatMapTo(mutableSetOf()) { it.lookupLocal(node.name, true) }
     }
 
     private fun getScopeFromSymbol(symbol: DeclSymbol): Scope? = when (symbol) {
@@ -484,7 +465,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
             }
 
             is DeclaredTypeNode -> {
-                val decl = resolveSymbols(typeNode.typeName, currentScope).first()
+                val decl = resolveSymbols(typeNode.typeName, currentScope, true).firstOrNull()
                 if (decl !is DeclSymbol.ClassDecl) {
                     return OpResult.failure("Invalid type name: ${typeNode.typeName.name}", typeNode.typeName)
                 }
@@ -515,7 +496,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
             }
 
             is MemberPointerTypeNode -> {
-                val decl = resolveSymbols(typeNode.parentId, currentScope).firstOrNull()
+                val decl = resolveSymbols(typeNode.parentId, currentScope, true).firstOrNull()
                 if (decl !is DeclSymbol.ClassDecl) {
                     return OpResult.failure("Invalid class name for member pointer: ${typeNode.parentId}", typeNode)
                 }
@@ -566,11 +547,13 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
 
             if (nonRefLeft is SemanticType.Declared) {
                 val inClass =
-                    nonRefLeft.decl.scope.lookupLocal(name).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                    nonRefLeft.decl.scope.lookupLocal(name,true).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
                 matches += findBestMatch(inClass, listOf(rightOperand));
 
-                val inParent = nonRefLeft.decl.scope.parent?.lookupUnqualified(name)
-                    ?.filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                val p = nonRefLeft.decl.scope.parent;
+                val inParent = if(p == null) null else {
+                    resolveSymbolsUnqualified(name, p)?.filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                }
                 if (inParent != null) matches += findBestMatch(
                     inParent,
                     listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand)
@@ -578,16 +561,17 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
             }
 
             if (nonRefRight is SemanticType.Declared) {
-                val inParent = nonRefRight.decl.scope.parent?.lookupUnqualified(name)
-                    ?.filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                val p = nonRefRight.decl.scope.parent;
+                val inParent = if(p == null) null else {
+                    resolveSymbolsUnqualified(name, p).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                }
                 if (inParent != null) matches += findBestMatch(
                     inParent,
                     listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand)
                 );
             }
 
-            val inCurrent =
-                scope.lookupUnqualified(name).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList();
+            val inCurrent = resolveSymbolsUnqualified(name,scope).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList();
             matches += findBestMatch(
                 inCurrent,
                 listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand)
@@ -598,19 +582,20 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
 
             if (nonRefType is SemanticType.Declared) {
                 val inClass =
-                    nonRefType.decl.scope.lookupLocal(name).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                    nonRefType.decl.scope.lookupLocal(name, true).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
                 matches += findBestMatch(inClass, listOfNotNull(rightOperand));
 
-                val inParent = nonRefType.decl.scope.parent?.lookupUnqualified(name)
-                    ?.filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                val p = nonRefType.decl.scope.parent;
+                val inParent = if(p == null) p else {
+                    resolveSymbolsUnqualified(name, p).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
+                }
                 if (inParent != null) matches += findBestMatch(
                     inParent,
                     listOf(leftOperand.copy(type = types.getReference(nonRefType)))
                 );
             }
 
-            val inCurrent =
-                scope.lookupUnqualified(name).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList();
+            val inCurrent = resolveSymbolsUnqualified(name, scope, true).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList();
             if (op == Operator.AMP) {
                 if (leftOperand.valueCategory == ValueCategory.LVALUE) {
                     inCurrent += DeclSymbol.builtinOpFunction(
@@ -634,7 +619,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
         params: List<ExpressionInfo>,
         onlyImplicit: Boolean
     ): Set<ViableCandidate<DeclSymbol.ConstructorDecl>> {
-        val ctors = classDecl.scope.lookupLocal(".ctor").filterIsInstance<DeclSymbol.ConstructorDecl>()
+        val ctors = classDecl.scope.lookupLocal(".ctor",true).filterIsInstance<DeclSymbol.ConstructorDecl>()
             .filter { (!onlyImplicit || !it.isExplicit) };
         return findBestMatch(ctors, params)
     }
@@ -817,7 +802,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
 
         fun findCtorConv(toType: SemanticType.Declared): Set<ConversionSequence> {
             val ctors =
-                toType.decl.scope.lookupLocal(CONSTRUCTOR_FUN_PREFIX).filterIsInstance<DeclSymbol.ConstructorDecl>()
+                toType.decl.scope.lookupLocal(CONSTRUCTOR_FUN_PREFIX,true).filterIsInstance<DeclSymbol.ConstructorDecl>()
             val bestCtors = findBestMatch(ctors, listOf(ExpressionInfo(fromType, fromVC, false)))
             val scs2 = findStdConversionSeq(types.dropCV(toType), ValueCategory.PRVALUE, toType, toVC, false)
                 ?: return emptySet();
@@ -830,7 +815,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
 
         fun findOperatorConv(fromType: SemanticType.Declared): Set<ConversionSequence> {
 
-            val ops = fromType.decl.scope.lookupLocal(CONVERSION_OP_FUN_PREFIX)
+            val ops = fromType.decl.scope.lookupLocal(CONVERSION_OP_FUN_PREFIX,true)
                 .filterIsInstance<DeclSymbol.OperatorFunctionDecl>()
             val bestOps = findBestMatch(ops, listOf(ExpressionInfo(fromType, fromVC, false)))
 

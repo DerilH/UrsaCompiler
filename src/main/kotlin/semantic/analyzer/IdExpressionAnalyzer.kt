@@ -6,13 +6,12 @@ import org.derilh.analyzer.NodeAnalyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.IdExpressionNode
 import org.derilh.core.ValueCategory
-import java.util.logging.Filter
 
 class IdExpressionAnalyzer : NodeAnalyzer<IdExpressionNode> {
     override fun analyze(node: IdExpressionNode, ctx: AnalyzeContext): ASTNode {
-        var resolved = ctx.resolveSymbolsLocal(node.id, ctx.scope)
+        var resolved = ctx.resolveSymbolsLocal(node.id, ctx.scope,)
         if (resolved.isEmpty()) {
-            resolved = ctx.resolveSymbols(node.id, ctx.scope)
+            resolved = ctx.resolveSymbols(node.id, ctx.scope, true)
         }
         if (resolved.isEmpty()) {
             ctx.error("Could not resolve symbol: ${node.id.toDisplayString()}", node)

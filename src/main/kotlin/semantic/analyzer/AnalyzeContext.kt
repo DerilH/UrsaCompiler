@@ -22,15 +22,12 @@ interface AnalyzeContext {
     val scope: Scope
     val rootScope: Scope
     val types: TypeContext
-//    fun enterScope(owner: DeclSymbol)
-//    fun enterScope(owner: Scope)
-//    fun enterScope()
-//    fun leaveScope()
-//    fun <T> withScope(scope: DeclSymbol, block: () -> T): T
-//    fun <T> withScope(scope: Scope, block: () -> T): T
-//    fun <T> withScope(block: () -> T): T
-//    fun enterRootScope() {
-//    fun leaveRootScope() {
+    fun enterScope(owner: Scope)
+    fun enterScope()
+    fun leaveScope()
+    fun <T> withScope(scope: Scope, block: () -> T): T
+    fun enterRootScope(scope: GlobalScope)
+    fun leaveRootScope()
 
     fun <T : ASTNode> findAnalyzer(node: T): NodeAnalyzer<T>
     fun <T : ASTNode> analyze(node: T, scope: Scope): ASTNode {
@@ -41,8 +38,9 @@ interface AnalyzeContext {
     fun error(message: String, node: ASTNode? = null)
     fun error(failure: OpResult.Failure)
     fun isSameType(first: SemanticType, second: SemanticType): Boolean
-    fun resolveSymbols(node: IdentifierNode, currentScope: Scope): Set<DeclSymbol>
-    fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope): Set<DeclSymbol>;
+    fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true): Set<DeclSymbol>
+    fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true): Set<DeclSymbol>;
+    fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean = true): Set<DeclSymbol>
     fun resolveType(typeNode: TypeNode, currentScope: Scope, deduceType: SemanticType? = null, isByValue: Boolean = true): OpResult<SemanticType>;
     fun findBinaryOverload(firstOp: TypeNode, secondOp: TypeNode, operator: Operator): DeclSymbol.FunctionDecl?
     fun resolveOpOverloads(scope: Scope, op: Operator, isBinary: Boolean, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo? = null): Set<ViableCandidate<DeclSymbol.OperatorFunctionDecl>>;
@@ -54,6 +52,9 @@ interface AnalyzeContext {
     fun getNextAnonId(): Int {
         return anonymousIdCounter++;
     }
+
+    fun getAnonClassName() = "<anonymous_class_$anonymousIdCounter>"
+    fun getAnonNamespaceName() = "<anonymous_ns_$anonymousIdCounter>"
 
     fun isNullPointerConstant(expr: ExpressionNode): Boolean {
         val type = (expr.resolvedType as? SemanticType.Primitive) ?: return false

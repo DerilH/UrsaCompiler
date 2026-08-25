@@ -23,7 +23,7 @@ open class Scope(
             return when (symbol) {
                 is DeclSymbol.VariableDecl -> OpResult.failure("Local variable ${symbol.name} already declared or defined", symbol.astNode)
                 is DeclSymbol.NamespaceDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
-                is DeclSymbol.ClassDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
+                is DeclSymbol.ClassDecl -> OpResult.failure("Class ${symbol.name} already defined in this scope", symbol.astNode)
             }
         }
     }
@@ -38,27 +38,28 @@ open class Scope(
         usingDirectives.add(importedScope)
     }
 
-    open fun lookupLocal(name: String): Set<DeclSymbol> {
-        val direct = symbolsMap[name]
-        if (direct != null) return direct
+    open fun lookupLocal(name: String, processedOnly: Boolean): Set<DeclSymbol> {
+        val direct = symbolsMap[name]?.filter { if (processedOnly) it.processed else true }?.toSet()
+        if (!direct.isNullOrEmpty()) return direct
 
         for (imported in usingDirectives) {
-            val found = imported.symbolsMap[name]
-            if (found != null) return found
+            val found = imported.symbolsMap[name]?.filter { if (processedOnly) it.processed else true }?.toSet()
+            if (!found.isNullOrEmpty()) return found
         }
         return emptySet()
     }
 
-    fun lookupUnqualified(name: String): Set<DeclSymbol> = lookupLocal(name).ifEmpty { parent?.lookupUnqualified(name) ?: emptySet()}
+    fun lookupUnqualified(name: String, processedOnly: Boolean): Set<DeclSymbol> = lookupLocal(name,processedOnly).ifEmpty { parent?.lookupUnqualified(name,processedOnly) ?: emptySet()}
 
     fun getRootScope(): Scope = parent?.getRootScope() ?: this
 }
 
 class ClassScope(
     parent: Scope?,
-    ownerClass: DeclSymbol.ClassDecl,
+    ownerClass: DeclSymbol.ClassDecl?,
 ) : Scope(parent = parent, ownerSymbol = ownerClass) {
-    private var currentAccessSpecifier: AccessSpecifier = ownerClass.getDefaultVisibility()
+    //TODO: Change default spec for anonymous classes
+    private var currentAccessSpecifier: AccessSpecifier = ownerClass?.getDefaultVisibility() ?: AccessSpecifier.PUBLIC
     private val symbolsByVisibilityMap = mutableMapOf<String, Map<AccessSpecifier, MutableSet<DeclSymbol>>>()
 
     override fun define(symbol: DeclSymbol): OpResult<Unit> {
@@ -91,11 +92,9 @@ class ClassScope(
         return emptySet()
     }
 
-    override fun lookupLocal(name: String): Set<DeclSymbol> {
+    override fun lookupLocal(name: String, processedOnly: Boolean): Set<DeclSymbol> {
         return lookupMember(name)
     }
-
-    fun lookupUnqualifiedInMethod(name: String): Set<DeclSymbol> = lookupMember(name).ifEmpty { parent?.lookupUnqualified(name) ?: emptySet()}
 
     fun setAccessSpecifier(specifier: AccessSpecifier) {
         currentAccessSpecifier = specifier
