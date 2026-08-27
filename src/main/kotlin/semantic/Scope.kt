@@ -15,7 +15,7 @@ enum class LookResult {
 }
 
 open class Scope(
-    val parent: Scope? = null,
+    val parent: Scope?,
     val ownerSymbol: DeclSymbol? = null
 ) {
     protected val ordinaryMap = mutableMapOf<String, DeclSymbol>()
@@ -174,4 +174,4 @@ class ClassScope(
     }
 }
 
-class GlobalScope : Scope()
+class GlobalScope : Scope(null)

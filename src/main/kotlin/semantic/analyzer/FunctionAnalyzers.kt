@@ -31,7 +31,7 @@ private fun checkMethodQualifiers(decl: DeclSymbol.FunctionDecl, qual: FunctionQ
 class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclaratorNode> {
     override fun analyze(node: FunctionDeclaratorNode, ctx: AnalyzeContext): ASTNode {
         //TODO: maybe need to check is node.id.name is unqualified-id for declaration only
-        node.functionDecl.signatureType = ctx.resolveType(node.type, ctx.scope).getAsOrElse{ ctx.error(it,); return node; }
+        node.functionDecl.signatureType = ctx.resolveType(node.type, ctx.scope).getAsOrElse{ ctx.error(it,node.type); ctx.types.getErrorFunction() }
         if(node.functionDecl.signatureType.hasUndeducedAuto) {
             ctx.error("Cannot deduce return type from function declaration", node)
             return node;

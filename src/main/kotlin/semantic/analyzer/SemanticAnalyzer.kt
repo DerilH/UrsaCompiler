@@ -75,6 +75,7 @@ import org.derilh.ast.MemberAccessExpressionNode
 import org.derilh.ast.ParameterNode
 import org.derilh.ast.RecoveryExpressionNode
 import org.derilh.ast.RecoveryStatementNode
+import org.derilh.ast.ErrorTypeNode
 import org.derilh.ast.ReturnStatementNode
 import org.derilh.ast.VariableDeclaratorNode
 import org.derilh.core.ConversionKind
@@ -99,14 +100,13 @@ import org.derilh.target.TargetInfo
 import org.derilh.target.X86_64LinuxTargetInfo
 import org.derilh.util.ErrorHelper.Companion.getStackTrace
 import java.math.BigInteger
-import javax.xml.stream.events.Namespace
 import kotlin.collections.mapNotNullTo
 import kotlin.collections.plusAssign
 
 class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     override lateinit var target: TargetInfo;
     override var anonymousIdCounter: Int = 0;
-    override val scope: Scope get() = innerScope ?: throw IllegalStateException("Not in any scope")
+    override val scope: Scope get() = innerScope ?: innerRootScope ?: throw IllegalStateException("Not in any scope")
     override val rootScope: Scope get() = innerRootScope ?: throw IllegalStateException("Not in any scope")
     override lateinit var types: TypeContext;
     private var innerRootScope: Scope? = null;
@@ -273,18 +273,22 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
         return AnalyzeResult(problems, ast)
     }
-//
+
+    //
     override fun enterScope() {
         enterScope(Scope(innerScope, null))
     }
-//
+
+    //
     override fun enterScope(owner: Scope) {
         innerScope = owner
     }
+
     override fun enterRootScope(scope: GlobalScope) {
         innerRootScope = scope
         innerScope = innerRootScope;
     }
+
     override fun leaveRootScope() {
         innerRootScope = null;
         innerScope = null;
@@ -292,9 +296,14 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
 
     override fun leaveScope() {
-        if (innerScope == null) throw IllegalStateException("Already outside of any scope")
-        innerScope = innerScope!!.parent
+        val current = innerScope ?: throw IllegalStateException("Already outside of any scope")
+        innerScope = if (current === innerRootScope) {
+            null
+        } else {
+            current.parent
+        }
     }
+
     override fun <T> withScope(scope: Scope, block: () -> T): T {
         enterScope(scope)
         try {
@@ -328,9 +337,9 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             if (first.params[i] !== second.params[i]) return false
         }
 
-        if(first.qualifiers.isConst != second.qualifiers.isConst) return false
-        if(first.qualifiers.isVolatile != second.qualifiers.isVolatile) return false
-        if(first.qualifiers.refQualifier != second.qualifiers.refQualifier) return false
+        if (first.qualifiers.isConst != second.qualifiers.isConst) return false
+        if (first.qualifiers.isVolatile != second.qualifiers.isVolatile) return false
+        if (first.qualifiers.refQualifier != second.qualifiers.refQualifier) return false
         return true
     }
 
@@ -367,7 +376,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             targetScope = currentScope.getRootScope()
         } else {
             val firstQualifier = node.qualifiers.first().name
-            val firstFound = resolveSymbolsUnqualified(firstQualifier, currentScope)
+            val firstFound = resolveSymbolsUnqualified(firstQualifier, currentScope, processedOnly)
                 .getOrElse { return it; }
 
             targetScope = getScopeFromSymbol(firstFound) ?: return OpResult.failure("Symbol '$firstQualifier' is not a class or namespace", node)
@@ -472,10 +481,10 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                 if (typeNode.sizeExpression != null) {
                     findAnalyzer(typeNode.sizeExpression).analyze(typeNode.sizeExpression, this)
                     val evalResult = typeNode.sizeExpression.evaluated
-                        ?: return OpResult.failure(
-                            "Array size expression must be constant. Variable length arrays are not supported by standard.",
-                            typeNode.sizeExpression
-                        )
+                            ?: return OpResult.failure(
+                                "Array size expression must be constant. Variable length arrays are not supported by standard.",
+                                typeNode.sizeExpression
+                            )
 
                     val sizeT = typeNode.sizeExpression.resolvedType as? SemanticType.Primitive
                     val bigIntVal = evalResult as? BigInteger
@@ -542,6 +551,9 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                     isVolatile = typeNode.isVolatile
                 )
             }
+            is ErrorTypeNode -> {
+                return OpResult.failure("Cannot resolve type", typeNode)
+            }
         }
 
         typeNode.resolvedType = semanticType
@@ -571,51 +583,52 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
         if (isBinary) {
             if (rightOperand == null) throw IllegalArgumentException("Right operand is null for binary expression: $leftOperand $op")
-            val nonRefRight = types.removeRef(rightOperand.type)
-
-
 
             if (nonRefLeft is SemanticType.Declared) {
                 matches += findBestLocal(name, nonRefLeft.decl.scope, rightOperand)
-
-                val parent = nonRefLeft.decl.scope.parent;
-                parent?.let { matches += findBestWithRef(name,it, leftOperand, rightOperand) }
             }
+            val freeCandidates = mutableSetOf<DeclSymbol.FunctionDecl>()
+            freeCandidates.addAll(collectADLOverloads(name, leftOperand, rightOperand))
 
-            if (nonRefRight is SemanticType.Declared) {
-                val parent = nonRefRight.decl.scope.parent;
-                parent?.let { matches += findBestWithRef(name,it, leftOperand, rightOperand) }
+            val unqualifiedSet = resolveSymbolsUnqualified(name, scope).getAsOrNull<DeclSymbol.FunctionOverloadSet>()
+            unqualifiedSet?.let { freeCandidates.addAll(it.overloads) }
+
+            if (freeCandidates.isNotEmpty()) {
+                val leftRef = leftOperand.copy(type = types.getReference(nonRefLeft))
+                matches += findBestMatch(freeCandidates.toList(), listOf(leftRef, rightOperand))
             }
-
-            matches += findBestWithRef(name,scope, leftOperand, rightOperand);
         } else {
             if (nonRefLeft is SemanticType.Declared) {
-                matches += findBestLocal(name, nonRefLeft.decl.scope, leftOperand);
-
-                val parent = nonRefLeft.decl.scope.parent;
-                parent?.let { matches += findBestWithRef(name,it, leftOperand, null) }
+                matches += findBestLocal(name, nonRefLeft.decl.scope, leftOperand)
             }
 
-            val inCurrent = mutableListOf<DeclSymbol.OperatorFunctionDecl>();
-            val found = resolveSymbolsUnqualified(name, scope, true).getOrNull() as? DeclSymbol.OperatorFunctionDecl;
-            found?.let { inCurrent += it }
+            val freeCandidates = mutableSetOf<DeclSymbol.FunctionDecl>()
 
-            if (op == Operator.AMP) {
-                if (leftOperand.valueCategory == ValueCategory.LVALUE) {
-                    inCurrent += DeclSymbol.builtinOpFunction(name, types.getFunction(types.getPointer(nonRefLeft), listOf(types.getReference(nonRefLeft)), FunctionQualifiers())).apply {
-                        processed = true;
-                    }
-                }
+            freeCandidates.addAll(collectADLOverloads(name, leftOperand))
+
+            val unqualifiedSet = resolveSymbolsUnqualified(name, scope).getAsOrNull<DeclSymbol.FunctionOverloadSet>()
+            unqualifiedSet?.let { freeCandidates.addAll(it.overloads) }
+
+            if (op == Operator.AMP && leftOperand.valueCategory == ValueCategory.LVALUE) {
+                val builtinOp = DeclSymbol.builtinOpFunction(
+                    name,
+                    types.getFunction(types.getPointer(nonRefLeft), listOf(types.getReference(nonRefLeft)), FunctionQualifiers())
+                ).apply { processed = true }
+
+                freeCandidates.add(builtinOp)
             }
-            matches += findBestMatch(inCurrent, listOf(leftOperand.copy(type = types.getReference(nonRefLeft))));
 
+            if (freeCandidates.isNotEmpty()) {
+                val leftRef = leftOperand.copy(type = types.getReference(nonRefLeft))
+                matches += findBestMatch(freeCandidates.toList(), listOf(leftRef))
+            }
         }
         return matches.distinctBy { System.identityHashCode(it) }.toSet();
     }
 
     fun findBestLocal(name: String, scope: Scope, op: ExpressionInfo): Set<ViableCandidate<DeclSymbol.FunctionDecl>> {
         val current: DeclSymbol.FunctionOverloadSet? = scope.lookupLocal(name, true).getAsOrNull()
-        return current?.let{
+        return current?.let {
             findBestMatch(current.overloads, listOf(op))
         } ?: emptySet()
     }
@@ -623,7 +636,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     fun findBestWithRef(name: String, scope: Scope, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo?): Set<ViableCandidate<DeclSymbol.FunctionDecl>> {
         val nonRefLeft = types.removeRef(leftOperand.type)
         val inParent: DeclSymbol.FunctionOverloadSet? = resolveSymbolsUnqualified(name, scope).getAsOrNull()
-        return inParent?.let{
+        return inParent?.let {
             findBestMatch(inParent.overloads, listOfNotNull(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand))
         } ?: emptySet()
     }
@@ -634,8 +647,8 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         params: List<ExpressionInfo>,
         onlyImplicit: Boolean
     ): Set<ViableCandidate<DeclSymbol.ConstructorDecl>> {
-        var ctor = classDecl.scope.lookupLocal(".ctor",true).getOrNull() as? DeclSymbol.ConstructorDecl
-        if(!(!onlyImplicit || ctor?.isExplicit == true)) {
+        var ctor = classDecl.scope.lookupLocal(".ctor", true).getOrNull() as? DeclSymbol.ConstructorDecl
+        if (!(!onlyImplicit || ctor?.isExplicit == true)) {
             ctor = null;
         }
         return findBestMatch(listOfNotNull(ctor), params)
@@ -717,7 +730,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                 if (!toType.isConst) {
                     if (fromVC == ValueCategory.LVALUE && types.removeRef(fromType) === underlying) {
                         val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
-                            ?: IdentityConversionSequence(underlying)
+                                ?: IdentityConversionSequence(underlying)
                         seq.bindsToTemporary = false
                         return setOf(seq)
                     }
@@ -725,7 +738,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                 } else {
                     if (fromVC == ValueCategory.LVALUE && types.removeRef(fromType) === underlying) {
                         val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
-                            ?: IdentityConversionSequence(underlying)
+                                ?: IdentityConversionSequence(underlying)
                         seq.bindsToTemporary = false
                         return setOf(seq)
                     }
@@ -760,7 +773,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
                 if (fromVC == ValueCategory.XVALUE && types.removeRef(fromType) == underlying) {
                     val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
-                        ?: IdentityConversionSequence(underlying)
+                            ?: IdentityConversionSequence(underlying)
                     seq.bindsToTemporary = false
                     return setOf(seq)
                 }
@@ -812,10 +825,10 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     ): Set<ConversionSequence> {
 
         fun findCtorConv(toType: SemanticType.Declared): Set<ConversionSequence> {
-            val ctors = toType.decl.scope.lookupLocal(CONSTRUCTOR_FUN_PREFIX,true).getOrNull() as? DeclSymbol.ConstructorDecl;
+            val ctors = toType.decl.scope.lookupLocal(CONSTRUCTOR_FUN_PREFIX, true).getOrNull() as? DeclSymbol.ConstructorDecl;
             val bestCtors = findBestMatch(listOfNotNull(ctors), listOf(ExpressionInfo(fromType, fromVC, false)))
             val scs2 = findStdConversionSeq(types.dropCV(toType), ValueCategory.PRVALUE, toType, toVC, false)
-                ?: return emptySet();
+                    ?: return emptySet();
 
             return bestCtors.mapNotNullTo(mutableSetOf()) {
                 val seq = it.sequences[0] as? StdConversionSequence ?: return@mapNotNullTo null
@@ -825,13 +838,13 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
         fun findOperatorConv(fromType: SemanticType.Declared): Set<ConversionSequence> {
 
-            val ops = fromType.decl.scope.lookupLocal(CONVERSION_OP_FUN_PREFIX,true).getOrNull() as? DeclSymbol.OperatorFunctionDecl
+            val ops = fromType.decl.scope.lookupLocal(CONVERSION_OP_FUN_PREFIX, true).getOrNull() as? DeclSymbol.OperatorFunctionDecl
             val bestOps = findBestMatch(listOfNotNull(ops), listOf(ExpressionInfo(fromType, fromVC, false)))
 
             return bestOps.mapNotNullTo(mutableSetOf()) {
                 val seq = it.sequences[0] as? StdConversionSequence ?: return@mapNotNullTo null
                 val scs2 = findStdConversionSeq(it.decl.returnType, ValueCategory.PRVALUE, fromType, toVC, false)
-                    ?: return@mapNotNullTo null;
+                        ?: return@mapNotNullTo null;
                 UserConversionSequence(seq, it.decl, scs2, toType, seq.bindsToTemporary || scs2.bindsToTemporary)
             }
         }
@@ -1017,7 +1030,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     }
 
     fun isQualificationConversion(from: SemanticType, to: SemanticType): Boolean {
-        if(from === to) return false;
+        if (from === to) return false;
         val decompFrom = decomposePointer(from) ?: return false
         val decompTo = decomposePointer(to) ?: return false
 
@@ -1210,8 +1223,8 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         while (true) {
             curr = when (curr) {
                 is SemanticType.Reference -> curr.pointee
-                is SemanticType.Pointer   -> curr.pointee
-                is SemanticType.Array     -> curr.elementType
+                is SemanticType.Pointer -> curr.pointee
+                is SemanticType.Array -> curr.elementType
                 else -> return curr
             }
         }

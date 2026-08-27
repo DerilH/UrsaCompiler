@@ -10,14 +10,12 @@ import org.derilh.ast.StatementNode
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.RefQualifier
 import org.derilh.core.getAsOrElse
-import org.derilh.core.ifFailure
-import org.derilh.semantic.SemanticType
 import org.derilh.util.ErrorHelper
 
 class ConstructorDeclAnalyzer : NodeAnalyzer<ConstructorDeclarationNode> {
     override fun analyze(node: ConstructorDeclarationNode, ctx: AnalyzeContext): ASTNode {
         //TODO: maybe need to check is node.id.name is unqualified-id for declaration only
-        node.ctorDecl.signatureType = ctx.resolveType(node.type, ctx.scope).getAsOrElse { ctx.error(it); return node }
+        node.ctorDecl.signatureType = ctx.resolveType(node.type, ctx.scope).getAsOrElse { ctx.error(it); ctx.types.getErrorFunction() }
 
         val classDecl = ctx.scope.findCurrentClass();
         if (classDecl == null) {

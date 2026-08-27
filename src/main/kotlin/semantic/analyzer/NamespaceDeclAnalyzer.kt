@@ -21,9 +21,11 @@ public class NamespaceDeclAnalyzer : NodeAnalyzer<NamespaceDeclarationNode> {
 fun findOrCreateNamespaceDef(
     name: String,
     ctx: AnalyzeContext,
-    isAnonymous: Boolean
+    isAnonymous: Boolean,
+    astNode: ASTNode?,
+    processedOnly: Boolean
 ): OpResult<DeclSymbol.NamespaceDecl> {
-    val result = ctx.scope.lookupLocal(name, true);
+    val result = ctx.scope.lookupLocal(name, processedOnly);
 
     return when (result) {
 
@@ -45,6 +47,9 @@ fun findOrCreateNamespaceDef(
             } else {
                 val newSymbol = DeclSymbol.namespace(name, ctx.scope.ownerSymbol, isAnonymous)
                 newSymbol.scope = Scope(parent = ctx.scope, ownerSymbol = newSymbol)
+                if(astNode != null) {
+                    newSymbol.astNode = astNode;
+                }
                 ctx.scope.define(newSymbol).ifFailure(ctx::error)
                 OpResult.success(newSymbol)
             }

@@ -49,6 +49,9 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
     val auto = intern(SemanticType.Auto(key = key))
     val voidPtr = getPointer(void)
 
+    private val error = intern(SemanticType.Error(key = key))
+    private val errorFunction = intern(getFunction(SemanticType.Error(key = key), emptyList(), FunctionQualifiers()))
+
     private fun <T : SemanticType> intern(type: T): T {
         @Suppress("UNCHECKED_CAST")
         return typePool.getOrPut(type) { type } as T
@@ -91,6 +94,8 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
     fun getAuto(isConst: Boolean, isVolatile: Boolean): SemanticType.Auto {
         return intern(SemanticType.Auto(isConst, isVolatile, key))
     }
+    fun getError(): SemanticType = error
+    fun getErrorFunction(): SemanticType.Function = errorFunction;
 
     fun dropCV(type: SemanticType): SemanticType = type.dropCV(key)
     fun addCV(type: SemanticType, isConst: Boolean, isVolatile: Boolean): SemanticType = type.addCV(isConst, isVolatile, key)

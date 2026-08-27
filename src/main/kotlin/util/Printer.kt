@@ -42,7 +42,7 @@ class Printer(val source: String, val lexer: Lexer) {
             currentPos = end
         }
         line = builder.toString();
-        val outStr = "${loc.file}:${loc.line}:${loc.column}: ${e.level.toString().withColor(e.level)}: ${e.msg.withBold()}\n " +
+        val outStr = "${loc.file}:${loc.line}:${loc.column}: ${e.level.toString().withLevelColor(e.level)}: ${e.msg.withBold()}\n " +
                 "  ${loc.line} |$line\n" +
                 "  ${" ".repeat(loc.line.toString().length)}  |${" ".repeat(loc.column - 1)}${"^".withColor(LITERAL_COLOR)}"
 
@@ -81,7 +81,7 @@ class Printer(val source: String, val lexer: Lexer) {
                 currentPos = end
             }
             line = builder.toString();
-            val outStr = "${loc.file}:${loc.line}:${loc.column}: ${e.level.toString().withColor(e.level)}: ${e.msg.withBold()}\n " +
+            val outStr = "${loc.file}:${loc.line}:${loc.column}: ${e.level.toString().withLevelColor(e.level)}: ${e.msg.withBold()}\n " +
                     "  ${loc.line} |$line\n" +
                     "  ${" ".repeat(loc.line.toString().length)}  |${" ".repeat(loc.column - 1)}${"^".withColor(LITERAL_COLOR)}"
 
@@ -114,10 +114,11 @@ class Printer(val source: String, val lexer: Lexer) {
         return "$color$this$RESET"
     }
 
-    private fun String.withColor(problem: ProblemLevel): String  {
+    private fun String.withLevelColor(problem: ProblemLevel): String  {
         val color = when(problem) {
-            ProblemLevel.WARNING -> "\u001b[1;35m"
-            ProblemLevel.ERROR -> "\u001b[1;31m"
+            org.derilh.exceptions.ProblemLevel.WARNING -> "\u001b[1;35m"
+            org.derilh.exceptions.ProblemLevel.ERROR -> "\u001b[1;31m"
+            else -> RESET
         }
         return withColor(color)
     }

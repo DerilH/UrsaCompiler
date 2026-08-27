@@ -19,18 +19,23 @@ class IdExpressionAnalyzer : NodeAnalyzer<IdExpressionNode> {
             return node
         }
 
-        if (resolved is DeclSymbol.FunctionDecl) {
+        node.resolvedType = ctx.types.getError();
+        node.valueCategory = ValueCategory.PRVALUE
+
+
+
+//        if (resolved is DeclSymbol.FunctionDecl) {
 //            if (functions.size == 1) {
-                node.decl = resolved
-                node.resolvedType = resolved.signatureType
-//
-            node.valueCategory = ValueCategory.LVALUE
-            return node
-        }
+//                node.decl = resolved
+//                node.resolvedType = resolved.signatureType
+
+//            node.valueCategory = ValueCategory.LVALUE
+//            return node
+//        }
 //                val overloadSet = DeclSymbol.OverloadSet(node.id, functions)
 //                node.resolvedSymbol = overloadSet
 //                node.resolvedType = SemanticType.Overload // Неопределенный тип перегрузки
-                TODO("Add support for overloads")
+//                TODO("Add support for overloads")
 //            }
         //TODO: add ISO lookup standards
         //TODO: Add overload set

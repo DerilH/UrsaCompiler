@@ -288,6 +288,11 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             Objects.hash(isConst, isVolatile)
     }
 
+    class Error constructor(key: TypeContext.Key, override val isComplete: Boolean = false) : SemanticType(key = key) {
+        override fun dropCV(key: TypeContext.Key): SemanticType = this
+        override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
+        override fun toDisplayString(): String = "Recovery"
+    }
 
     protected fun qualifiersPrefix(): String {
         val list = mutableListOf<String>()
@@ -308,6 +313,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             is Array -> elementType.containsAuto()
             is MemberPointer -> pointee.containsAuto()
             is BoundMethod -> function.containsAuto()
+            is Error -> false
 
             is Function -> {
                 returnType.containsAuto() ||
@@ -318,6 +324,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
 
     val hasUndeducedAuto: Boolean get() = containsAuto()
 }
+
 @OptIn(ExperimentalContracts::class)
 fun SemanticType.isFunctionPointer(): Boolean {
     contract {

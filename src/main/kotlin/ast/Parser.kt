@@ -1282,14 +1282,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             token isA Keyword.WHILE -> parseWhileStatement()
             token isA Keyword.DO -> parseDoStatement()
             token isA Keyword.CONTINUE -> parseContinueStatement();
-            else -> {
-                val decl = tryParseDeclarationOrDefinition();
-                val className = (decl as? ClassDeclarationNode)?.name ?: (decl as? ClassDefinitionNode)?.name;
-                if (className != null) {
-//                    declarations += className;
-                }
-                decl
-            }
+            else -> tryParseDeclarationOrDefinition();
         }
     }
 
@@ -1416,7 +1409,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
     private fun parseParameter(): ParameterNode {
         val location = currentToken().location
-        val type = parseType();
+        val type = tryParseType() ?: ErrorTypeNode(location);
         val declarator = parseDeclarator(type, false);
 
         return ParameterNode(declarator, location)
@@ -1444,14 +1437,14 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         var leaveCount: Int = 0;
         var res: OpResult<DeclSymbol.NamespaceDecl>
         if (identifier == null) {
-            res = findOrCreateNamespaceDef(sema.getAnonNamespaceName(), sema, true);
+            res = findOrCreateNamespaceDef(sema.getAnonNamespaceName(), sema, true, null, processedOnly = false);
             if (res.isSuccess()) {
                 sema.scope.addUsingDirective(res.value.scope)
             }
         } else {
             if (identifier is QualifiedIdentifierNode) {
                 for (qual in identifier.qualifiers) {
-                    val res = findOrCreateNamespaceDef(qual.name, sema, false)
+                    val res = findOrCreateNamespaceDef(qual.name, sema, false, qual, processedOnly = false)
                     if (res.isSuccess()) {
                         sema.enterScope(res.value.scope);
                         leaveCount++;
@@ -1459,7 +1452,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
                 }
             }
 
-            res = findOrCreateNamespaceDef(identifier.name, sema, false)
+            res = findOrCreateNamespaceDef(identifier.name, sema, false, identifier, processedOnly = false)
         }
 
 
@@ -1476,6 +1469,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             if (res.isSuccess()) {
                 res.value.declarations += it
                 it.nsDecl = res.value;
+                it.nsDecl.astNode = it;
             }
         }
     }
@@ -1491,7 +1485,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         }
         var decl: DeclSymbol.ClassDecl
         if (identifier != null) {
-            val found = sema.resolveSymbols(identifier, sema.scope, false).getOrNull() as? DeclSymbol.ClassDecl;
+            val found = sema.resolveSymbolsLocal(identifier, sema.scope, false).getOrNull() as? DeclSymbol.ClassDecl;
             if (found == null) {
                 decl = DeclSymbol.classDecl(identifier.name, classType, sema.scope.ownerSymbol)
                 decl.astNode = identifier;
@@ -1516,7 +1510,6 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
                     sema.error("Class ${decl.name} has already been defined or declared", it)
                 } else {
                     decl.astNode = it
-
                     decl.definitionNode = it
                 }
                 it.classDecl = decl

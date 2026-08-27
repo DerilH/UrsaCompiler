@@ -527,6 +527,21 @@ abstract class ExpressionNode(override var valueCategory: ValueCategory? = null)
     override val children: List<ASTNode> get() = emptyList()
 }
 
+class ErrorTypeNode(override val location: SourceLocation?) : TypeNode(false,false) {
+    override fun toString(): String = "ErrorTypeNode"
+    override fun equals(other: Any?): Boolean {
+        return false;
+    }
+
+    override fun hashCode(): Int {
+        return 0;
+    }
+
+    override fun toDisplayString(): String {
+        return "ErrorTypeNode"
+    }
+}
+
 class RecoveryExpressionNode(override val location: SourceLocation?) : ExpressionNode() {
     override fun toString(): String = "RecoveryExpression"
 }
