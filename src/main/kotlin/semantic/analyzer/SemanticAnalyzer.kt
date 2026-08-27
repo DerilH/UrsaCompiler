@@ -99,6 +99,7 @@ import org.derilh.target.TargetInfo
 import org.derilh.target.X86_64LinuxTargetInfo
 import org.derilh.util.ErrorHelper.Companion.getStackTrace
 import java.math.BigInteger
+import javax.xml.stream.events.Namespace
 import kotlin.collections.mapNotNullTo
 import kotlin.collections.plusAssign
 
@@ -567,9 +568,12 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 //        val scope = resolveSymbols(IdentifierNode(name, SourceLocation.EXPORTED), scope).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList()
         val matches = mutableListOf<ViableCandidate<DeclSymbol.FunctionDecl>>()
         val nonRefLeft = types.removeRef(leftOperand.type)
+
         if (isBinary) {
             if (rightOperand == null) throw IllegalArgumentException("Right operand is null for binary expression: $leftOperand $op")
             val nonRefRight = types.removeRef(rightOperand.type)
+
+
 
             if (nonRefLeft is SemanticType.Declared) {
                 matches += findBestLocal(name, nonRefLeft.decl.scope, rightOperand)
@@ -1159,6 +1163,58 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
     override fun error(failure: OpResult.Failure, astNode: ASTNode?) {
         error(failure.message, astNode ?: failure.args.firstOrNull() as? ASTNode)
+    }
+
+    private fun collectADLForSymbol(
+        typeDecl: DeclSymbol,
+        name: String,
+        result: MutableSet<DeclSymbol.FunctionDecl>
+    ) {
+        var current: DeclSymbol? = typeDecl
+
+        while (current is DeclSymbol.ClassDecl) {
+            val overloads = current.scope.lookupLocal(name, true).getAsOrNull<DeclSymbol.FunctionOverloadSet>()
+            overloads?.let { result.addAll(it.overloads) }
+
+            current = current.parentSymbol
+        }
+
+        if (current is DeclSymbol.NamespaceDecl) {
+            val overloads = current.scope.lookupLocal(name, true).getAsOrNull<DeclSymbol.FunctionOverloadSet>()
+
+            overloads?.let { result.addAll(it.overloads) }
+        }
+    }
+
+    fun collectADLOverloads(
+        name: String,
+        vararg operands: ExpressionInfo?
+    ): List<DeclSymbol.FunctionDecl> {
+        val result = mutableSetOf<DeclSymbol.FunctionDecl>()
+
+        for (operand in operands) {
+            if (operand == null) continue
+
+            val baseType = getUnderlyingTypeForADL(operand.type)
+
+            if (baseType is SemanticType.Declared) {
+                collectADLForSymbol(baseType.decl, name, result)
+            }
+        }
+
+        return result.toList()
+    }
+
+    override fun getUnderlyingTypeForADL(type: SemanticType): SemanticType {
+        var curr = type
+        while (true) {
+            curr = when (curr) {
+                is SemanticType.Reference -> curr.pointee
+                is SemanticType.Pointer   -> curr.pointee
+                is SemanticType.Array     -> curr.elementType
+                else -> return curr
+            }
+        }
     }
 
     data class CvQualifiers(

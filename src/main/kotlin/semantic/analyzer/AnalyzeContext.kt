@@ -48,6 +48,7 @@ interface AnalyzeContext {
     fun buildConversionSeq(base: ExpressionNode, seq: ConversionSequence): ExpressionNode;
     fun findImplicitCastSeq(fromType: SemanticType, fromVC: ValueCategory, toType: SemanticType, toVC: ValueCategory, isNullPointerConstant: Boolean): Collection<ConversionSequence>
     fun getRefValueCategory(returnType: SemanticType): ValueCategory;
+    fun getUnderlyingTypeForADL(type: SemanticType): SemanticType
     fun buildConversion(fromExpr: ExpressionNode, to: SemanticType, toVC: ValueCategory): OpResult<ExpressionNode>;
 
     fun getNextAnonId(): Int {
