@@ -2,54 +2,141 @@ package org.derilh.analyzer
 
 import org.derilh.core.OpResult
 import org.derilh.core.AccessSpecifier
+import org.derilh.core.getOrElse
+import org.derilh.core.isSuccess
+import org.derilh.core.orElse
+import org.derilh.util.ErrorHelper
 
+
+enum class LookResult {
+    AMBIGUOUS,
+    NOT_FOUND,
+    FOUND
+}
 
 open class Scope(
     val parent: Scope? = null,
     val ownerSymbol: DeclSymbol? = null
 ) {
-    protected val symbolsMap = mutableMapOf<String, MutableSet<DeclSymbol>>()
+    protected val ordinaryMap = mutableMapOf<String, DeclSymbol>()
+    protected val tagMap = mutableMapOf<String, DeclSymbol>()
 
     private val usingDirectives = mutableListOf<Scope>()
 
-    open fun define(symbol: DeclSymbol): OpResult<Unit> {
-        val set= symbolsMap.computeIfAbsent(symbol.name) {mutableSetOf()}
+    /**
+     * Defines a symbol in this scope.
+     *
+     * @return The resolved symbol depending on its declaration type:
+     * - **Function** — returns [DeclSymbol.FunctionOverloadSet]
+     * - **Namespace** — returns the first namespace declaration in this scope
+     * - **Else** — returns the [OpResult.Success] with symbol itself or an [OpResult.Failure] if it already exists
+     */
+    open fun define(symbol: DeclSymbol): OpResult<DeclSymbol> {
+        val name = symbol.name
 
-        if (set.isEmpty() || symbol is DeclSymbol.FunctionDecl) {
-            set += symbol
-            return OpResult.success(Unit)
-        }
-        else {
-            return when (symbol) {
-                is DeclSymbol.VariableDecl -> OpResult.failure("Local variable ${symbol.name} already declared or defined", symbol.astNode)
-                is DeclSymbol.NamespaceDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
-                is DeclSymbol.ClassDecl -> OpResult.failure("Class ${symbol.name} already defined in this scope", symbol.astNode)
+        when (symbol) {
+            is DeclSymbol.ClassDecl -> {
+                val existingTag = tagMap[name]
+                if (existingTag != null) {
+                    return ErrorHelper.alreadyDefined(symbol, existingTag)
+                }
+                val existingOrdinary = ordinaryMap[name]
+                if (existingOrdinary is DeclSymbol.NamespaceDecl) {
+                    return ErrorHelper.alreadyDefined(symbol, existingOrdinary)
+                }
+
+                tagMap[name] = symbol
             }
+
+
+            is DeclSymbol.FunctionDecl -> {
+                var existingOrdinary = ordinaryMap[name]
+                if(existingOrdinary == null) {
+                    existingOrdinary = DeclSymbol.FunctionOverloadSet(name, symbol.parentSymbol)
+                    ordinaryMap[name] = existingOrdinary;
+                }
+                else if(existingOrdinary !is DeclSymbol.FunctionOverloadSet) {
+                    return ErrorHelper.alreadyDefined(symbol, existingOrdinary)
+                }
+
+                existingOrdinary.overloads += symbol
+                return OpResult.success(existingOrdinary)
+            }
+
+            is DeclSymbol.VariableDecl -> {
+                val existingOrdinary = ordinaryMap[name]
+                if (existingOrdinary != null) {
+                    return ErrorHelper.alreadyDefined(symbol, existingOrdinary)
+                }
+
+                ordinaryMap[name] = symbol
+            }
+
+            is DeclSymbol.NamespaceDecl -> {
+                val existingTag = tagMap[name]
+                if (existingTag != null) {
+                    return ErrorHelper.alreadyDefined(symbol, existingTag)
+                }
+
+                val existingOrdinary = ordinaryMap[name]
+                if (existingOrdinary != null) {
+                    return if (existingOrdinary is DeclSymbol.NamespaceDecl) {
+                        OpResult.success(existingOrdinary)
+                    } else {
+                        ErrorHelper.alreadyDefined(symbol, existingOrdinary)
+                    }
+                }
+
+                ordinaryMap[name] = symbol
+            }
+
+            else -> throw IllegalArgumentException("Invalid symbol type ${symbol.javaClass.name}")
         }
+
+        return OpResult.success(symbol)
     }
+
     fun findCurrentFunction(): DeclSymbol.FunctionDecl? {
-        return if(this.ownerSymbol is DeclSymbol.FunctionDecl) ownerSymbol else parent?.findCurrentFunction()
+        return if (this.ownerSymbol is DeclSymbol.FunctionDecl) ownerSymbol else parent?.findCurrentFunction()
     }
+
     fun findCurrentClass(): DeclSymbol.ClassDecl? {
-        return if(this.ownerSymbol is DeclSymbol.ClassDecl) ownerSymbol else parent?.findCurrentClass()
+        return if (this.ownerSymbol is DeclSymbol.ClassDecl) ownerSymbol else parent?.findCurrentClass()
     }
 
     fun addUsingDirective(importedScope: Scope) {
         usingDirectives.add(importedScope)
     }
 
-    open fun lookupLocal(name: String, processedOnly: Boolean): Set<DeclSymbol> {
-        val direct = symbolsMap[name]?.filter { if (processedOnly) it.processed else true }?.toSet()
-        if (!direct.isNullOrEmpty()) return direct
+    open fun lookupLocal(name: String, processedOnly: Boolean): OpResult<DeclSymbol> {
+        val ordinary = ordinaryMap[name]
+        if (ordinary != null && (!processedOnly || ordinary.processed)) return OpResult.success(ordinary)
 
-        for (imported in usingDirectives) {
-            val found = imported.symbolsMap[name]?.filter { if (processedOnly) it.processed else true }?.toSet()
-            if (!found.isNullOrEmpty()) return found
-        }
-        return emptySet()
+        val tag = tagMap[name]
+        if (tag != null && (!processedOnly || tag.processed)) return OpResult.success(tag)
+
+        val fromUsing = lookupInUsingNamespaces(name, processedOnly)
+        return fromUsing
     }
 
-    fun lookupUnqualified(name: String, processedOnly: Boolean): Set<DeclSymbol> = lookupLocal(name,processedOnly).ifEmpty { parent?.lookupUnqualified(name,processedOnly) ?: emptySet()}
+    private fun Scope.lookupInUsingNamespaces(name: String, processedOnly: Boolean): OpResult<DeclSymbol> {
+        var candidate: OpResult.Success<DeclSymbol>? = null
+
+        for (ns in usingDirectives) {
+            val found = ns.lookupLocal(name, processedOnly)
+            if (!found.isSuccess()) continue;
+
+            if (candidate != null && candidate.value != found) {
+                return OpResult.failure("Reference to '$name' is ambiguous", LookResult.AMBIGUOUS)
+            }
+            candidate = found
+        }
+
+        return candidate ?: OpResult.failure("No declaration found for '$name'", LookResult.NOT_FOUND)
+    }
+
+    fun lookupUnqualified(name: String, processedOnly: Boolean): OpResult<DeclSymbol> =
+        lookupLocal(name, processedOnly).orElse { return parent?.lookupUnqualified(name, processedOnly) ?: it };
 
     fun getRootScope(): Scope = parent?.getRootScope() ?: this
 }
@@ -60,41 +147,27 @@ class ClassScope(
 ) : Scope(parent = parent, ownerSymbol = ownerClass) {
     //TODO: Change default spec for anonymous classes
     private var currentAccessSpecifier: AccessSpecifier = ownerClass?.getDefaultVisibility() ?: AccessSpecifier.PUBLIC
-    private val symbolsByVisibilityMap = mutableMapOf<String, Map<AccessSpecifier, MutableSet<DeclSymbol>>>()
 
-    override fun define(symbol: DeclSymbol): OpResult<Unit> {
-        val map = symbolsByVisibilityMap.computeIfAbsent(symbol.name) {mutableMapOf()} as MutableMap<AccessSpecifier, MutableSet<DeclSymbol>>
-        val set = map.computeIfAbsent(currentAccessSpecifier) {mutableSetOf()}
-        val set1 = symbolsMap.computeIfAbsent(symbol.name) {mutableSetOf()}
-
-        if (set.isEmpty() || symbol is DeclSymbol.FunctionDecl) {
-            set += symbol
-            set1 += symbol
-            return OpResult.success(Unit)
-        }
-        else {
-            return when (symbol) {
-                is DeclSymbol.VariableDecl -> OpResult.failure("Local variable ${symbol.name} already declared or defined", symbol.astNode)
-                is DeclSymbol.NamespaceDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
-                is DeclSymbol.ClassDecl -> OpResult.failure("Namespace ${symbol.name} already defined in this scope", symbol.astNode)
-            }
-        }
+    override fun define(symbol: DeclSymbol): OpResult<DeclSymbol> {
+        symbol.accessSpecifier = currentAccessSpecifier;
+        return super.define(symbol)
     }
 
-    fun lookupMember(name: String): Set<DeclSymbol> {
-        val local = symbolsMap[name]
-        if (local != null) return local
-        //TODO enable member lookup for future inheritance
+//    fun lookupMember(name: String): OpResult<DeclSymbol> {
+//        val local = ordinaryMap[name]
+//        if (local != null) return local
+//        TODO enable member lookup for future inheritance
 //        for (base in ownerClass.baseClasses) {
 //            val fromBase = base.classScope.lookupMember(name)
 //            if (fromBase != null) return fromBase
 //        }
-        return emptySet()
-    }
+//        return
+//        return lookupLocal(name, false)
+//    }
 
-    override fun lookupLocal(name: String, processedOnly: Boolean): Set<DeclSymbol> {
-        return lookupMember(name)
-    }
+//    override fun lookupLocal(name: String, processedOnly: Boolean): OpResult<DeclSymbol> {
+//        return lookupMember(name)
+//    }
 
     fun setAccessSpecifier(specifier: AccessSpecifier) {
         currentAccessSpecifier = specifier

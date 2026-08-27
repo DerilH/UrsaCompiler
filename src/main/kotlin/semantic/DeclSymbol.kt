@@ -20,6 +20,7 @@ sealed class DeclSymbol(
     val parentSymbol: DeclSymbol?,
 ) {
     lateinit var astNode: ASTNode
+    var accessSpecifier: AccessSpecifier = AccessSpecifier.PUBLIC
     var processed: Boolean = false;
 
     val qualifiedName: String
@@ -41,12 +42,11 @@ sealed class DeclSymbol(
         name: String,
         parentSymbol: DeclSymbol?,
         val type: ClassType,
-        var hasDefinition: Boolean
 //        val baseClasses: MutableList<ClassDecl> = mutableListOf()
     ) : DeclSymbol(name, parentSymbol) {
         lateinit var scope: ClassScope
         var definitionNode: ASTNode? = null;
-
+        var hasDefinition: Boolean = false;
         fun getDefaultVisibility(): AccessSpecifier = when (type) {
             ClassType.STRUCT, ClassType.UNION -> AccessSpecifier.PUBLIC
             ClassType.CLASS -> AccessSpecifier.PRIVATE
@@ -76,6 +76,13 @@ sealed class DeclSymbol(
         val params: List<SemanticType> get() = signatureType.params
     }
 
+    class FunctionOverloadSet(name: String, parentSymbol: DeclSymbol?) : DeclSymbol(name, parentSymbol){
+        val overloads: MutableList<FunctionDecl> = mutableListOf()
+        init {
+            processed = true;
+        }
+    }
+
     class OperatorFunctionDecl(
         name: String,
         parentSymbol: DeclSymbol?,
@@ -102,10 +109,6 @@ sealed class DeclSymbol(
             return VariableDecl(name, parentSymbol)
         }
 
-        fun param(name: String, parentSymbol: DeclSymbol?): VariableDecl {
-            return VariableDecl(name, parentSymbol, isParameter = true)
-        }
-
         fun functionDecl(name: String, parentSymbol: DeclSymbol?, qualifiers: FunctionQualifiers, defaultParamCount: Int): FunctionDecl {
             return FunctionDecl(name, parentSymbol, qualifiers, isMethod = false, isBuiltin = false, defaultParamCount)
         }
@@ -128,7 +131,7 @@ sealed class DeclSymbol(
         }
 
         fun classDecl(name: String, classType: ClassType, parentSymbol: DeclSymbol?): ClassDecl {
-            return ClassDecl(name, parentSymbol, classType, hasDefinition = false)
+            return ClassDecl(name, parentSymbol, classType)
         }
 
         fun namespace(name: String, parentSymbol: DeclSymbol?, isAnonymous: Boolean): NamespaceDecl {

@@ -25,7 +25,12 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
         }
 
         val operandInfo = ExpressionInfo(type, vc, ctx.isNullPointerConstant(node.operand))
-        if(type.isPointer()) {
+
+        if(type is SemanticType.Function && node.operator == Operator.AMP) {
+            node.resolvedType = ctx.types.decay(type)
+            node.valueCategory = ValueCategory.PRVALUE
+        }
+        else if(type.isPointer()) {
             val info = resolvePointerUnaryOpType(node.operand.resolvedType as SemanticType.Pointer, node, ctx);
             node.resolvedType = info?.type;
             node.valueCategory = info?.valueCategory;

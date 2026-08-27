@@ -27,7 +27,7 @@ class ReturnStmtAnalyzer : NodeAnalyzer<ReturnStatementNode> {
         if(!funcDecl.returnType.hasUndeducedAuto) {
             node.expression =
                 ctx.buildConversion(returnExpr, funcDecl.returnType, ctx.getRefValueCategory(funcDecl.returnType))
-                    .getOrElse { ctx.error(it); return expr }
+                    .getOrElse { ctx.error(it,); return expr }
         }
 
         return node;

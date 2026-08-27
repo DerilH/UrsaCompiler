@@ -5,7 +5,7 @@ import org.derilh.ast.ExpressionNode
 import org.derilh.ast.VariableDeclaratorNode
 import org.derilh.core.ValueCategory
 import org.derilh.core.getOrElse
-import org.derilh.core.ifFailure
+import org.derilh.semantic.SemanticType
 
 class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
     override fun analyze(node: VariableDeclaratorNode, ctx: AnalyzeContext): ASTNode {
@@ -17,13 +17,17 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
         init = node.initializer
 
         val varType = ctx.resolveType(node.type, ctx.scope, initType).getOrElse {
-            ctx.error(it)
+            ctx.error(it,)
             return node
         }
         node.varDecl.type = varType
         node.varDecl.processed = true;
 
-        if(varType.hasUndeducedAuto) {
+
+        if(varType is SemanticType.Declared && !varType.isComplete) {
+            ctx.error("Type ${varType.decl.name} is incomplete", node.type)
+        }
+        else if(varType.hasUndeducedAuto) {
             if(init == null) {
                 ctx.error("Declaration with 'auto' requires an initializer", node)
             } else ctx.error("Cannot initialize 'auto' with an expression", init)

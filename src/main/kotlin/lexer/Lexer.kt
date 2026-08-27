@@ -9,7 +9,7 @@ import org.derilh.exceptions.LexerException
 
 class Lexer {
     private lateinit var input: String;
-    fun tokenize(code: String): List<Token> {
+    fun tokenize(code: String, fileName: String = "unknown"): List<Token> {
         input = code
         val tokens = mutableListOf<Token>()
         val tokenBuilder = StringBuilder()
@@ -19,7 +19,7 @@ class Lexer {
         var col = 1
         var startLine = 1
         var startCol = 1
-        var currentFile: String = "unknown"
+        var currentFile: String = fileName
 
         fun advance() {
             if (i < input.length) {

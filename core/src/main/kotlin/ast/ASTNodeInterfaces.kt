@@ -20,6 +20,7 @@ interface IQualifiedIdentifierNode : IIdentifierNode {
 interface ITypeNode : IASTNode {
     val isConst: Boolean
     val isVolatile: Boolean
+    fun toDisplayString(): String
 }
 
 interface IPrimitiveTypeNode : ITypeNode {
@@ -234,6 +235,9 @@ interface IForStatementNode : IStatementNode {
     val increment: List<IExpressionNode>
     val body: IStatementNode
 }
+
+interface IMemberAccessExpressionNode : IBinaryExpressionNode;
+
 
 interface IBinaryExpressionNode : IExpressionNode {
     val left: IExpressionNode

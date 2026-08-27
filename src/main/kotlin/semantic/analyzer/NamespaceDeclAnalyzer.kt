@@ -2,7 +2,9 @@ package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
 import org.derilh.ast.NamespaceDeclarationNode
+import org.derilh.core.OpResult
 import org.derilh.core.ifFailure
+import org.derilh.util.ErrorHelper
 
 public class NamespaceDeclAnalyzer : NodeAnalyzer<NamespaceDeclarationNode> {
     override fun analyze(node: NamespaceDeclarationNode, ctx: AnalyzeContext): ASTNode {
@@ -20,23 +22,32 @@ fun findOrCreateNamespaceDef(
     name: String,
     ctx: AnalyzeContext,
     isAnonymous: Boolean
-): DeclSymbol.NamespaceDecl {
-    val symbols = ctx.scope.lookupLocal(name, true)
-    val existingSymbol = symbols.firstOrNull()
+): OpResult<DeclSymbol.NamespaceDecl> {
+    val result = ctx.scope.lookupLocal(name, true);
 
-    return when (existingSymbol) {
-        is DeclSymbol.NamespaceDecl -> {
-            existingSymbol
+    return when (result) {
+
+        is OpResult.Success<DeclSymbol> -> {
+            when (result.value) {
+                is DeclSymbol.NamespaceDecl -> {
+                    OpResult.success(result.value as DeclSymbol.NamespaceDecl);
+                }
+
+                else -> {
+                    ErrorHelper.alreadyDefined(DeclSymbol.namespace(name, ctx.scope.ownerSymbol, isAnonymous), result.value)
+                }
+            }
         }
 
-
-        else -> {
-            ctx.error("Redefinition of symbol '$name' as different kind")
-
-            val newSymbol = DeclSymbol.namespace(name, ctx.scope.ownerSymbol, isAnonymous)
-            newSymbol.scope = Scope(parent = ctx.scope, ownerSymbol = newSymbol)
-            ctx.scope.define(newSymbol).ifFailure(ctx::error)
-            newSymbol
+        is OpResult.Failure -> {
+            if (result.args[0] == LookResult.AMBIGUOUS) {
+                result
+            } else {
+                val newSymbol = DeclSymbol.namespace(name, ctx.scope.ownerSymbol, isAnonymous)
+                newSymbol.scope = Scope(parent = ctx.scope, ownerSymbol = newSymbol)
+                ctx.scope.define(newSymbol).ifFailure(ctx::error)
+                OpResult.success(newSymbol)
+            }
         }
     }
 }

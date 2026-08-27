@@ -16,6 +16,7 @@ import org.derilh.analyzer.FloatLiteralAnalyzer
 import org.derilh.analyzer.GlobalScope
 import org.derilh.analyzer.IfStatementAnalyzer
 import org.derilh.analyzer.IntLiteralAnalyzer
+import org.derilh.analyzer.MemberAccessExprAnalyzer
 import org.derilh.analyzer.NamespaceDeclAnalyzer
 import org.derilh.analyzer.NodeAnalyzer
 import org.derilh.analyzer.NullptrLiteralAnalyzer
@@ -70,6 +71,7 @@ import org.derilh.ast.UnaryExpressionNode
 import org.derilh.ast.DeclarationSequenceNode
 import org.derilh.ast.FunctionDeclaratorNode
 import org.derilh.ast.IfStatementNode
+import org.derilh.ast.MemberAccessExpressionNode
 import org.derilh.ast.ParameterNode
 import org.derilh.ast.RecoveryExpressionNode
 import org.derilh.ast.RecoveryStatementNode
@@ -79,10 +81,13 @@ import org.derilh.core.ConversionKind
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.OpResult
 import org.derilh.core.Operator
+import org.derilh.core.Options
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.SourceLocation
 import org.derilh.core.ValueCategory
+import org.derilh.core.getAsOrNull
 import org.derilh.core.getOrElse
+import org.derilh.core.getOrNull
 import org.derilh.exceptions.ProblemLevel
 import org.derilh.exceptions.SemanticProblem
 import org.derilh.semantic.AnalyzeResult
@@ -91,15 +96,18 @@ import org.derilh.semantic.SemanticType
 import org.derilh.semantic.TypeContext
 import org.derilh.semantic.isFunctionPointer
 import org.derilh.target.TargetInfo
+import org.derilh.target.X86_64LinuxTargetInfo
+import org.derilh.util.ErrorHelper.Companion.getStackTrace
 import java.math.BigInteger
 import kotlin.collections.mapNotNullTo
 import kotlin.collections.plusAssign
 
-class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
+class SemanticAnalyzer(val options: Options) : AnalyzeContext {
+    override lateinit var target: TargetInfo;
     override var anonymousIdCounter: Int = 0;
     override val scope: Scope get() = innerScope ?: throw IllegalStateException("Not in any scope")
     override val rootScope: Scope get() = innerRootScope ?: throw IllegalStateException("Not in any scope")
-    override val types: TypeContext = TypeContext(target.types.sizeType, target.types.ptrDiffType)
+    override lateinit var types: TypeContext;
     private var innerRootScope: Scope? = null;
     private var innerScope: Scope? = null
     private val problems: Map<ProblemLevel, MutableList<SemanticProblem>> = buildMap {
@@ -143,7 +151,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
         TypeCastExpressionNode::class to TypeCastExprAnalyzer(),
         UnaryExpressionNode::class to UnaryExprAnalyzer(),
         BinaryExpressionNode::class to BinaryExprAnalyzer(),
-
+        MemberAccessExpressionNode::class to MemberAccessExprAnalyzer(),
 
         RecoveryExpressionNode::class to RecoveryAnalyzer(),
         RecoveryStatementNode::class to RecoveryAnalyzer()
@@ -246,6 +254,14 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
         }
     }
 
+    init {
+        target = when (options.target) {
+            "x86_64Linux" -> X86_64LinuxTargetInfo;
+            else -> throw IllegalArgumentException("Unknown target: $target")
+        }
+        types = TypeContext(target.types.sizeType, target.types.ptrDiffType)
+    }
+
     fun analyze(ast: RootNode): AnalyzeResult {
 
         enterRootScope(ast.scope)
@@ -265,7 +281,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
         innerScope = owner
     }
     override fun enterRootScope(scope: GlobalScope) {
-        innerRootScope = GlobalScope();
+        innerRootScope = scope
         innerScope = innerRootScope;
     }
     override fun leaveRootScope() {
@@ -303,6 +319,19 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
     }
 
     override fun isSameType(first: SemanticType, second: SemanticType): Boolean = first == second
+    override fun isSameOverloadFun(first: SemanticType.Function, second: SemanticType.Function): Boolean {
+        if (first === second) return true
+        if (first.params.size != second.params.size) return false
+
+        for (i in first.params.indices) {
+            if (first.params[i] !== second.params[i]) return false
+        }
+
+        if(first.qualifiers.isConst != second.qualifiers.isConst) return false
+        if(first.qualifiers.isVolatile != second.qualifiers.isVolatile) return false
+        if(first.qualifiers.refQualifier != second.qualifiers.refQualifier) return false
+        return true
+    }
 
     override fun findBinaryOverload(
         firstOp: TypeNode,
@@ -312,47 +341,47 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
         return null
     }
 
-    override fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean): Set<DeclSymbol> {
+    override fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
         return when (node) {
-            is QualifiedIdentifierNode -> resolveQualified(node, currentScope)
+            is QualifiedIdentifierNode -> resolveQualified(node, currentScope, processedOnly)
             else -> currentScope.lookupUnqualified(node.name, processedOnly)
         }
     }
 
-    override fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean): Set<DeclSymbol> {
+    override fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
         return when (node) {
-            is QualifiedIdentifierNode -> emptySet()
+            is QualifiedIdentifierNode -> OpResult.failure("Cannot resolve local identifier: ${node.name}", node)
             else -> currentScope.lookupLocal(node.name, processedOnly)
         }
     }
 
-    override fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean): Set<DeclSymbol> {
+    override fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
         return currentScope.lookupUnqualified(node, processedOnly)
     }
 
-    private fun resolveQualified(node: QualifiedIdentifierNode, currentScope: Scope): Set<DeclSymbol> {
-        var searchScopes: List<Scope>
-        var startIndex: Int;
+    private fun resolveQualified(node: QualifiedIdentifierNode, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
+        var targetScope: Scope
 
         if (node.isGlobal) {
-            searchScopes = listOf(currentScope.getRootScope())
-            startIndex = 0
+            targetScope = currentScope.getRootScope()
         } else {
             val firstQualifier = node.qualifiers.first().name
             val firstFound = resolveSymbolsUnqualified(firstQualifier, currentScope)
-            searchScopes = firstFound.mapNotNull(::getScopeFromSymbol)
-            startIndex = 1
+                .getOrElse { return it; }
+
+            targetScope = getScopeFromSymbol(firstFound) ?: return OpResult.failure("Symbol '$firstQualifier' is not a class or namespace", node)
         }
+        val startIndex = if (node.isGlobal) 0 else 1
 
         for (i in startIndex until node.qualifiers.size) {
             val qualifierName = node.qualifiers[i].name
 
-            val symbols = searchScopes.flatMap { it.lookupLocal(qualifierName, true) }
-            searchScopes = symbols.mapNotNull(::getScopeFromSymbol)
-            if (searchScopes.isEmpty()) return emptySet()
+            val symbol = targetScope.lookupLocal(qualifierName, processedOnly).getOrElse { return it; }
+            targetScope = getScopeFromSymbol(symbol) ?: return OpResult.failure("'$qualifierName' is not a class or namespace", node)
         }
 
-        return searchScopes.flatMapTo(mutableSetOf()) { it.lookupLocal(node.name, true) }
+        val finalSymbol = targetScope.lookupLocal(node.name, processedOnly).getOrElse { return it; }
+        return OpResult.success(finalSymbol)
     }
 
     private fun getScopeFromSymbol(symbol: DeclSymbol): Scope? = when (symbol) {
@@ -465,7 +494,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
             }
 
             is DeclaredTypeNode -> {
-                val decl = resolveSymbols(typeNode.typeName, currentScope, true).firstOrNull()
+                val decl = resolveSymbols(typeNode.typeName, currentScope, true).getOrElse { return it; }
                 if (decl !is DeclSymbol.ClassDecl) {
                     return OpResult.failure("Invalid type name: ${typeNode.typeName.name}", typeNode.typeName)
                 }
@@ -496,7 +525,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
             }
 
             is MemberPointerTypeNode -> {
-                val decl = resolveSymbols(typeNode.parentId, currentScope, true).firstOrNull()
+                val decl = resolveSymbols(typeNode.parentId, currentScope, true).getOrElse { return it }
                 if (decl !is DeclSymbol.ClassDecl) {
                     return OpResult.failure("Invalid class name for member pointer: ${typeNode.parentId}", typeNode)
                 }
@@ -526,102 +555,86 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
         }
     }
 
-
     override fun resolveOpOverloads(
         scope: Scope,
         op: Operator,
         isBinary: Boolean,
         leftOperand: ExpressionInfo,
         rightOperand: ExpressionInfo?
-    ): Set<ViableCandidate<DeclSymbol.OperatorFunctionDecl>> {
+    ): Set<ViableCandidate<DeclSymbol.FunctionDecl>> {
         //TODO: checking for visibility modifiers
         val name = "${OPERATOR_FUN_PREFIX}${op.value}"
 //        val scope = resolveSymbols(IdentifierNode(name, SourceLocation.EXPORTED), scope).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList()
-        val matches = mutableListOf<ViableCandidate<DeclSymbol.OperatorFunctionDecl>>()
-
+        val matches = mutableListOf<ViableCandidate<DeclSymbol.FunctionDecl>>()
+        val nonRefLeft = types.removeRef(leftOperand.type)
         if (isBinary) {
             if (rightOperand == null) throw IllegalArgumentException("Right operand is null for binary expression: $leftOperand $op")
-
-            val nonRefLeft = types.removeRef(leftOperand.type)
             val nonRefRight = types.removeRef(rightOperand.type)
 
             if (nonRefLeft is SemanticType.Declared) {
-                val inClass =
-                    nonRefLeft.decl.scope.lookupLocal(name,true).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
-                matches += findBestMatch(inClass, listOf(rightOperand));
+                matches += findBestLocal(name, nonRefLeft.decl.scope, rightOperand)
 
-                val p = nonRefLeft.decl.scope.parent;
-                val inParent = if(p == null) null else {
-                    resolveSymbolsUnqualified(name, p)?.filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
-                }
-                if (inParent != null) matches += findBestMatch(
-                    inParent,
-                    listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand)
-                );
+                val parent = nonRefLeft.decl.scope.parent;
+                parent?.let { matches += findBestWithRef(name,it, leftOperand, rightOperand) }
             }
 
             if (nonRefRight is SemanticType.Declared) {
-                val p = nonRefRight.decl.scope.parent;
-                val inParent = if(p == null) null else {
-                    resolveSymbolsUnqualified(name, p).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
-                }
-                if (inParent != null) matches += findBestMatch(
-                    inParent,
-                    listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand)
-                );
+                val parent = nonRefRight.decl.scope.parent;
+                parent?.let { matches += findBestWithRef(name,it, leftOperand, rightOperand) }
             }
 
-            val inCurrent = resolveSymbolsUnqualified(name,scope).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList();
-            matches += findBestMatch(
-                inCurrent,
-                listOf(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand)
-            );
-
+            matches += findBestWithRef(name,scope, leftOperand, rightOperand);
         } else {
-            val nonRefType = types.removeRef(leftOperand.type)
+            if (nonRefLeft is SemanticType.Declared) {
+                matches += findBestLocal(name, nonRefLeft.decl.scope, leftOperand);
 
-            if (nonRefType is SemanticType.Declared) {
-                val inClass =
-                    nonRefType.decl.scope.lookupLocal(name, true).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
-                matches += findBestMatch(inClass, listOfNotNull(rightOperand));
-
-                val p = nonRefType.decl.scope.parent;
-                val inParent = if(p == null) p else {
-                    resolveSymbolsUnqualified(name, p).filterIsInstance<DeclSymbol.OperatorFunctionDecl>();
-                }
-                if (inParent != null) matches += findBestMatch(
-                    inParent,
-                    listOf(leftOperand.copy(type = types.getReference(nonRefType)))
-                );
+                val parent = nonRefLeft.decl.scope.parent;
+                parent?.let { matches += findBestWithRef(name,it, leftOperand, null) }
             }
 
-            val inCurrent = resolveSymbolsUnqualified(name, scope, true).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList();
+            val inCurrent = mutableListOf<DeclSymbol.OperatorFunctionDecl>();
+            val found = resolveSymbolsUnqualified(name, scope, true).getOrNull() as? DeclSymbol.OperatorFunctionDecl;
+            found?.let { inCurrent += it }
+
             if (op == Operator.AMP) {
                 if (leftOperand.valueCategory == ValueCategory.LVALUE) {
-                    inCurrent += DeclSymbol.builtinOpFunction(
-                        name,
-                        types.getFunction(
-                            types.getPointer(nonRefType),
-                            listOf(types.getReference(nonRefType)),
-                            FunctionQualifiers()
-                        )
-                    )
+                    inCurrent += DeclSymbol.builtinOpFunction(name, types.getFunction(types.getPointer(nonRefLeft), listOf(types.getReference(nonRefLeft)), FunctionQualifiers())).apply {
+                        processed = true;
+                    }
                 }
             }
-            matches += findBestMatch(inCurrent, listOf(leftOperand.copy(type = types.getReference(nonRefType))));
+            matches += findBestMatch(inCurrent, listOf(leftOperand.copy(type = types.getReference(nonRefLeft))));
 
         }
         return matches.distinctBy { System.identityHashCode(it) }.toSet();
     }
+
+    fun findBestLocal(name: String, scope: Scope, op: ExpressionInfo): Set<ViableCandidate<DeclSymbol.FunctionDecl>> {
+        val current: DeclSymbol.FunctionOverloadSet? = scope.lookupLocal(name, true).getAsOrNull()
+        return current?.let{
+            findBestMatch(current.overloads, listOf(op))
+        } ?: emptySet()
+    }
+
+    fun findBestWithRef(name: String, scope: Scope, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo?): Set<ViableCandidate<DeclSymbol.FunctionDecl>> {
+        val nonRefLeft = types.removeRef(leftOperand.type)
+        val inParent: DeclSymbol.FunctionOverloadSet? = resolveSymbolsUnqualified(name, scope).getAsOrNull()
+        return inParent?.let{
+            findBestMatch(inParent.overloads, listOfNotNull(leftOperand.copy(type = types.getReference(nonRefLeft)), rightOperand))
+        } ?: emptySet()
+    }
+
 
     private fun resolveConstructorOverloads(
         classDecl: DeclSymbol.ClassDecl,
         params: List<ExpressionInfo>,
         onlyImplicit: Boolean
     ): Set<ViableCandidate<DeclSymbol.ConstructorDecl>> {
-        val ctors = classDecl.scope.lookupLocal(".ctor",true).filterIsInstance<DeclSymbol.ConstructorDecl>()
-            .filter { (!onlyImplicit || !it.isExplicit) };
-        return findBestMatch(ctors, params)
+        var ctor = classDecl.scope.lookupLocal(".ctor",true).getOrNull() as? DeclSymbol.ConstructorDecl
+        if(!(!onlyImplicit || ctor?.isExplicit == true)) {
+            ctor = null;
+        }
+        return findBestMatch(listOfNotNull(ctor), params)
     }
 
     private fun <T : DeclSymbol.FunctionDecl> findBestMatch(
@@ -641,13 +654,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
                 val expr = inParams[i]
                 val paramType = decl.params[i]
 
-                val seq = findImplicitCastSeq(
-                    expr.type,
-                    expr.valueCategory,
-                    paramType,
-                    ValueCategory.PRVALUE,
-                    expr.isNullConstant
-                )
+                val seq = findImplicitCastSeq(expr.type, expr.valueCategory, paramType, ValueCategory.PRVALUE, expr.isNullConstant)
                 if (seq.isEmpty()) {
                     isViable = false
                     break
@@ -801,9 +808,8 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
     ): Set<ConversionSequence> {
 
         fun findCtorConv(toType: SemanticType.Declared): Set<ConversionSequence> {
-            val ctors =
-                toType.decl.scope.lookupLocal(CONSTRUCTOR_FUN_PREFIX,true).filterIsInstance<DeclSymbol.ConstructorDecl>()
-            val bestCtors = findBestMatch(ctors, listOf(ExpressionInfo(fromType, fromVC, false)))
+            val ctors = toType.decl.scope.lookupLocal(CONSTRUCTOR_FUN_PREFIX,true).getOrNull() as? DeclSymbol.ConstructorDecl;
+            val bestCtors = findBestMatch(listOfNotNull(ctors), listOf(ExpressionInfo(fromType, fromVC, false)))
             val scs2 = findStdConversionSeq(types.dropCV(toType), ValueCategory.PRVALUE, toType, toVC, false)
                 ?: return emptySet();
 
@@ -815,9 +821,8 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
 
         fun findOperatorConv(fromType: SemanticType.Declared): Set<ConversionSequence> {
 
-            val ops = fromType.decl.scope.lookupLocal(CONVERSION_OP_FUN_PREFIX,true)
-                .filterIsInstance<DeclSymbol.OperatorFunctionDecl>()
-            val bestOps = findBestMatch(ops, listOf(ExpressionInfo(fromType, fromVC, false)))
+            val ops = fromType.decl.scope.lookupLocal(CONVERSION_OP_FUN_PREFIX,true).getOrNull() as? DeclSymbol.OperatorFunctionDecl
+            val bestOps = findBestMatch(listOfNotNull(ops), listOf(ExpressionInfo(fromType, fromVC, false)))
 
             return bestOps.mapNotNullTo(mutableSetOf()) {
                 val seq = it.sequences[0] as? StdConversionSequence ?: return@mapNotNullTo null
@@ -876,6 +881,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
                 if (!currentType.isComplete) return null
 
                 currentVC = ValueCategory.PRVALUE
+                currentType = types.removeRef(currentType)
                 seq += ConversionStep(ConversionKind.LVALUE_TO_RVALUE, currentVC, currentType)
             }
         }
@@ -1007,6 +1013,7 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
     }
 
     fun isQualificationConversion(from: SemanticType, to: SemanticType): Boolean {
+        if(from === to) return false;
         val decompFrom = decomposePointer(from) ?: return false
         val decompTo = decomposePointer(to) ?: return false
 
@@ -1143,15 +1150,15 @@ class SemanticAnalyzer(override val target: TargetInfo) : AnalyzeContext {
     }
 
     override fun warn(message: String, node: ASTNode?) {
-        problems[ProblemLevel.WARNING]!! += SemanticProblem(message, ProblemLevel.WARNING, node)
+        problems[ProblemLevel.WARNING]!! += SemanticProblem(message, ProblemLevel.WARNING, node, getStackTrace(options))
     }
 
     override fun error(message: String, node: ASTNode?) {
-        problems[ProblemLevel.ERROR]!! += SemanticProblem(message, ProblemLevel.ERROR, node)
+        problems[ProblemLevel.ERROR]!! += SemanticProblem(message, ProblemLevel.ERROR, node, getStackTrace(options))
     }
 
-    override fun error(failure: OpResult.Failure) {
-        error(failure.message, failure.args.firstOrNull() as? ASTNode)
+    override fun error(failure: OpResult.Failure, astNode: ASTNode?) {
+        error(failure.message, astNode ?: failure.args.firstOrNull() as? ASTNode)
     }
 
     data class CvQualifiers(

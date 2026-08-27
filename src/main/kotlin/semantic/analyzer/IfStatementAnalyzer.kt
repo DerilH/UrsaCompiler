@@ -21,7 +21,7 @@ class IfStatementAnalyzer : NodeAnalyzer<IfStatementNode> {
         if (node.condition.resolvedType == null) return node;
 
         node.condition = ctx.buildConversion(node.condition, ctx.types.bool, ValueCategory.PRVALUE)
-            .getOrElse { ctx.error(it); return node };
+            .getOrElse { ctx.error(it,); return node };
 
 
         val returns = mutableListOf<ReturnStatementNode>()

@@ -12,6 +12,6 @@ enum class ProblemLevel {
     ERROR
 }
 
-class SemanticProblem(val msg: String, val level: ProblemLevel, val node: IASTNode? = null) {
+class SemanticProblem(val msg: String, val level: ProblemLevel, val node: IASTNode? = null, var trace: Array<StackTraceElement>? = null) {
 
 }

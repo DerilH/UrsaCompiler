@@ -9,6 +9,7 @@ import com.github.ajalt.clikt.parameters.types.path
 import org.derilh.PreProcessor
 import org.derilh.semantic.analyzer.SemanticAnalyzer
 import org.derilh.ast.Parser
+import org.derilh.core.Options
 import org.derilh.exceptions.ProblemLevel
 import org.derilh.exceptions.SemanticProblem
 import org.derilh.lexer.Lexer
@@ -28,6 +29,7 @@ class SemaCommand : CliktCommand(
         .required()
 
     private val printAst by option("-ast", "--printAst", help = "Prints ast to terminal").flag()
+    private val traceErrors by option("--traceErrors", help = "Adds stack trace to errors").flag()
 
     private val output by option("-o", "--output", help = "Source file path")
         .path(mustExist = false, canBeFile = true, mustBeWritable = true)
@@ -38,7 +40,8 @@ class SemaCommand : CliktCommand(
     override fun run() {
         val code = Files.readString(inputPath);
 
-        val result = RunHelper.analyze(code, inputPath, target)
+        val options = Options(target, printAst, traceErrors)
+        val result = RunHelper.analyze(code, inputPath, options)
         val printer = Printer(code, Lexer())
         result.second.problems.values.forEach { it ->
             it.forEach {
@@ -50,6 +53,7 @@ class SemaCommand : CliktCommand(
                 printer.printException(it)
             }
         }
+        System.out.flush()
         if(printAst) result.second.ast.printTree()
     }
 }

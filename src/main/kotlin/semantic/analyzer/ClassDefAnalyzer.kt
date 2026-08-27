@@ -33,6 +33,7 @@ class ClassDefAnalyzer : NodeAnalyzer<ClassDefinitionNode> {
         }
 
         node.classDecl.processed = true;
+        node.classDecl.hasDefinition = true;
         ctx.withScope(node.classDecl.scope) {
             ctx.analyze(node.body, ctx.scope)
         }

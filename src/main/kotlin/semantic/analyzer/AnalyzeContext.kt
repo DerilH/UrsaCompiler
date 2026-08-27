@@ -36,14 +36,15 @@ interface AnalyzeContext {
 
     fun warn(message: String, node: ASTNode? = null)
     fun error(message: String, node: ASTNode? = null)
-    fun error(failure: OpResult.Failure)
+    fun error(failure: OpResult.Failure, astNode: ASTNode? = null)
     fun isSameType(first: SemanticType, second: SemanticType): Boolean
-    fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true): Set<DeclSymbol>
-    fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true): Set<DeclSymbol>;
-    fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean = true): Set<DeclSymbol>
+    fun isSameOverloadFun(first: SemanticType.Function, second: SemanticType.Function): Boolean
+    fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true): OpResult<DeclSymbol>
+    fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true): OpResult<DeclSymbol>;
+    fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean = true): OpResult<DeclSymbol>
     fun resolveType(typeNode: TypeNode, currentScope: Scope, deduceType: SemanticType? = null, isByValue: Boolean = true): OpResult<SemanticType>;
     fun findBinaryOverload(firstOp: TypeNode, secondOp: TypeNode, operator: Operator): DeclSymbol.FunctionDecl?
-    fun resolveOpOverloads(scope: Scope, op: Operator, isBinary: Boolean, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo? = null): Set<ViableCandidate<DeclSymbol.OperatorFunctionDecl>>;
+    fun resolveOpOverloads(scope: Scope, op: Operator, isBinary: Boolean, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo? = null): Set<ViableCandidate<DeclSymbol.FunctionDecl>>;
     fun buildConversionSeq(base: ExpressionNode, seq: ConversionSequence): ExpressionNode;
     fun findImplicitCastSeq(fromType: SemanticType, fromVC: ValueCategory, toType: SemanticType, toVC: ValueCategory, isNullPointerConstant: Boolean): Collection<ConversionSequence>
     fun getRefValueCategory(returnType: SemanticType): ValueCategory;

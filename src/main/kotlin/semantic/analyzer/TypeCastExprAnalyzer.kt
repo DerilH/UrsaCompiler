@@ -13,7 +13,8 @@ public class TypeCastExprAnalyzer : NodeAnalyzer<TypeCastExpressionNode> {
 //            ctx.error("Cannot cast ${node.operand.resolvedType} to ${node.declaratorNode.type}", node)
 //        }
 //        node.resolvedType = node.declaratorNode.type.resolvedType;
-        TODO("Type cast not yet implemented")
+//        TODO("Type cast not yet implemented")
+        ctx.error("Type cast not yet implemented", node)
         return node;
     }
 }

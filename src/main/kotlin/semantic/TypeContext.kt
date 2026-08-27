@@ -83,9 +83,11 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
     }
 
     fun getFunction(returnType: SemanticType, params: List<SemanticType>, qualifiers: FunctionQualifiers): SemanticType.Function {
-        return intern(SemanticType.Function(returnType, params, qualifiers, key))
+        return intern(SemanticType.Function(returnType, params.map { dropCV(decay(it)) }, qualifiers, key))
     }
-
+    fun getBoundMethod(classDecl: DeclSymbol.ClassDecl, function: SemanticType.Function, isConst: Boolean = false, isVolatile: Boolean = false): SemanticType.BoundMethod {
+        return intern(SemanticType.BoundMethod(function, classDecl, key))
+    }
     fun getAuto(isConst: Boolean, isVolatile: Boolean): SemanticType.Auto {
         return intern(SemanticType.Auto(isConst, isVolatile, key))
     }

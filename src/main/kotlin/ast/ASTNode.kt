@@ -110,6 +110,10 @@ class PrimitiveTypeNode(
         result = 31 * result + isVolatile.hashCode()
         return result
     }
+
+    override fun toDisplayString(): String {
+        return "${qualifiersPrefix()}${kind}"
+    }
 }
 
 class DeclaredTypeNode(override val typeName: IdentifierNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(
@@ -137,6 +141,10 @@ class DeclaredTypeNode(override val typeName: IdentifierNode, isConst: Boolean, 
         result = 31 * result + isVolatile.hashCode()
         return result
     }
+
+    override fun toDisplayString(): String {
+        return "${qualifiersPrefix()}${typeName.toDisplayString()}"
+    }
 }
 
 class AutoTypeNode(isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(isConst, isVolatile), IAutoTypeNode {
@@ -147,6 +155,10 @@ class AutoTypeNode(isConst: Boolean, isVolatile: Boolean, override val location:
     }
 
     override fun hashCode(): Int = 1
+
+    override fun toDisplayString(): String {
+        return "${qualifiersPrefix()}auto"
+    }
 }
 
 //class DeclTypeTypeNode(isConst: Boolean, isVolatile: Boolean) : TypeNode(isConst, isVolatile) {
@@ -164,6 +176,15 @@ sealed class TypeNode(override val isConst: Boolean, override val isVolatile: Bo
     override fun toString(): String = "${this.javaClass.simpleName}(isConst=$isConst, isVolatile=$isVolatile)"
     abstract override fun equals(other: Any?): Boolean;
     abstract override fun hashCode(): Int;
+
+    protected fun qualifiersPrefix(): String {
+        val list = mutableListOf<String>()
+        if (isConst) list.add("const")
+        if (isVolatile) list.add("volatile")
+        return if (list.isEmpty()) "" else list.joinToString(" ") + " "
+    }
+
+    abstract override fun toDisplayString(): String
 }
 
 class MemberPointerTypeNode(override val parentId: IdentifierNode, override var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) :
@@ -191,6 +212,10 @@ class MemberPointerTypeNode(override val parentId: IdentifierNode, override var 
         result = 31 * result + isVolatile.hashCode()
         return result
     }
+
+    override fun toDisplayString(): String {
+        return "${qualifiersPrefix()}${parentId.toDisplayString()}::* ${type.toDisplayString()}"
+    }
 }
 
 class PointerTypeNode(override var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(isConst, isVolatile), IPointerTypeNode {
@@ -212,6 +237,10 @@ class PointerTypeNode(override var type: TypeNode, isConst: Boolean, isVolatile:
         result = 31 * result + isConst.hashCode()
         result = 31 * result + isVolatile.hashCode()
         return result
+    }
+
+    override fun toDisplayString(): String {
+        return "${qualifiersPrefix()}${type.toDisplayString()}*"
     }
 }
 
@@ -235,6 +264,10 @@ class ReferenceTypeNode(override var type: TypeNode, isConst: Boolean, isVolatil
         result = 31 * result + isVolatile.hashCode()
         return result
     }
+
+    override fun toDisplayString(): String {
+        return "${type.toDisplayString()}&"
+    }
 }
 
 class RValueReferenceTypeNode(override var type: TypeNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) :
@@ -257,6 +290,10 @@ class RValueReferenceTypeNode(override var type: TypeNode, isConst: Boolean, isV
         result = 31 * result + isConst.hashCode()
         result = 31 * result + isVolatile.hashCode()
         return result
+    }
+
+    override fun toDisplayString(): String {
+        return "${type.toDisplayString()}&&"
     }
 }
 
@@ -295,6 +332,19 @@ class FunctionTypeNode(override var returnType: TypeNode, override val params: L
         result = 31 * result + qualifiers.hashCode()
         return result
     }
+
+    override fun toDisplayString(): String {
+        val paramsStr = params.joinToString(", ") { it.type.toDisplayString() }
+        val qualifiersStr = StringBuilder()
+        if (qualifiers.isConst) qualifiersStr.append(" const")
+        if (qualifiers.isVolatile) qualifiersStr.append(" volatile")
+        when (qualifiers.refQualifier) {
+            org.derilh.core.RefQualifier.LVALUE -> qualifiersStr.append(" &")
+            org.derilh.core.RefQualifier.RVALUE -> qualifiersStr.append(" &&")
+            else -> {}
+        }
+        return "${returnType.toDisplayString()}($paramsStr)$qualifiersStr"
+    }
 }
 
 class ArrayTypeNode(
@@ -327,6 +377,11 @@ class ArrayTypeNode(
         result = 31 * result + isConst.hashCode()
         result = 31 * result + isVolatile.hashCode()
         return result
+    }
+
+    override fun toDisplayString(): String {
+        val size = sizeExpression?.let { "[$it]" } ?: "[]"
+        return "${qualifiersPrefix()}${elementType.toDisplayString()}$size"
     }
 }
 
@@ -376,7 +431,7 @@ class NamespaceBodyNode(override val declarations: List<ASTNode>, override val l
     override fun toString(): String = "ClassBodyNode"
 }
 
-class FunctionBodyNode(declarations: List<ASTNode>, override val location: SourceLocation?) : CompoundStatementNode(declarations,location), IFunctionBodyNode {
+class FunctionBodyNode(declarations: List<ASTNode>, override val location: SourceLocation?) : CompoundStatementNode(declarations, location), IFunctionBodyNode {
     override fun toString(): String {
         return "FunctionBodyNode"
     }
@@ -407,6 +462,7 @@ class ConstructorDeclarationNode(
     override val type: FunctionTypeNode,
     override val location: SourceLocation?
 ) : DeclarationNode(location), IConstructorDeclarationNode {
+    var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
     lateinit var ctorDecl: DeclSymbol.ConstructorDecl;
 
     override val children: List<ASTNode>
@@ -414,7 +470,7 @@ class ConstructorDeclarationNode(
     override val defaultParamCount: Int
         get() {
             val type = type;
-            return type.params.count {(it.declarator as? VariableDeclaratorNode)?.initializer != null}
+            return type.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
         }
 
     override val isExplicit: Boolean = false //TODO: Add explicit modifier
@@ -427,6 +483,7 @@ class ConstructorDefinitionNode(
     override val memberInitializers: List<MemberInitializerNode>,
     override var body: StatementNode, override val location: SourceLocation?
 ) : DefinitionNode(location), IConstructorDefinitionNode {
+    var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
     lateinit var ctorDecl: DeclSymbol.ConstructorDecl;
 
     override val children: List<ASTNode>
@@ -436,7 +493,7 @@ class ConstructorDefinitionNode(
     override val defaultParamCount: Int
         get() {
             val type = type;
-            return type.params.count {(it.declarator as? VariableDeclaratorNode)?.initializer != null}
+            return type.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
         }
 
     override fun toString(): String = "ConstructorDefinitionNode()"
@@ -446,6 +503,7 @@ data class FunctionDefinitionNode(
     override val declarator: FunctionDeclaratorNode,
     override var body: FunctionBodyNode, override val location: SourceLocation?
 ) : DefinitionNode(location), IFunctionDefinitionNode {
+    var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
     lateinit var functionDecl: DeclSymbol.FunctionDecl;
     override val children: List<ASTNode>
         get() = listOfNotNull(declarator) + body
@@ -618,22 +676,26 @@ class VariableDeclaratorNode(id: IdentifierNode, type: TypeNode, override var in
         return "VariableDeclaratorNode"
     }
 }
+
 class FunctionDeclaratorNode(id: IdentifierNode, type: FunctionTypeNode, location: SourceLocation?) : NamedDeclaratorNode(id, type, location), IFunctionDeclaratorNode {
+    var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
     lateinit var functionDecl: DeclSymbol.FunctionDecl;
     override val defaultParamCount: Int
         get() {
             val type = type as FunctionTypeNode;
-            return type.params.count {(it.declarator as? VariableDeclaratorNode)?.initializer != null}
+            return type.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
         }
 
     override fun toString(): String {
         return "FunctionDeclaratorNode"
     }
 }
+
 sealed class NamedDeclaratorNode(override val id: IdentifierNode, type: TypeNode, location: SourceLocation?) : DeclaratorNode(type, location), INamedDeclaratorNode {
     override val children: List<ASTNode>
         get() = super.children + id
 }
+
 class AbstractDeclaratorNode(type: TypeNode, location: SourceLocation?) : DeclaratorNode(type, location), IAbstractDeclaratorNode
 
 sealed class DeclaratorNode(override var type: TypeNode, override val location: SourceLocation?) : ASTNode, IDeclaratorNode {
@@ -699,10 +761,23 @@ class ForStatementNode(
     override var returnStatements: List<ReturnStatementNode>? = null
 }
 
-class BinaryExpressionNode(
+
+class MemberAccessExpressionNode(
+    left: ExpressionNode,
+    right: ExpressionNode,
+    operator: Operator,
+    location: SourceLocation?,
+) : BinaryExpressionNode(left, right, operator, location), IMemberAccessExpressionNode {
+    override val children: List<ASTNode> get() = emptyList()
+    override fun toString(): String = "MemberAccessExpressionNode"
+}
+
+
+open class BinaryExpressionNode(
     override var left: ExpressionNode,
     override var right: ExpressionNode,
-    override val operator: Operator, override val location: SourceLocation?,
+    override val operator: Operator,
+    override val location: SourceLocation?,
 ) : ExpressionNode(), IBinaryExpressionNode {
     /**May be builtin or user defined**/
     var functionDecl: DeclSymbol.FunctionDecl? = null
@@ -730,6 +805,10 @@ class NamespaceDeclarationNode(
     override val isAnonymous = name == null
     override val children: List<ASTNode>
         get() = listOfNotNull(name) + body
+
+    override fun toString(): String {
+        return "NamespaceDeclarationNode(name=$name)"
+    }
 }
 
 class ClassDeclarationNode(

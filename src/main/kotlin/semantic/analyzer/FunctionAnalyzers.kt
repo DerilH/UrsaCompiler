@@ -11,9 +11,14 @@ import org.derilh.ast.FunctionDefinitionNode
 import org.derilh.ast.FunctionTypeNode
 import org.derilh.ast.ReturnStatementNode
 import org.derilh.core.FunctionQualifiers
+import org.derilh.core.OpResult
 import org.derilh.core.RefQualifier
+import org.derilh.core.getAsOrElse
 import org.derilh.core.getOrElse
 import org.derilh.semantic.SemanticType
+import org.derilh.util.ErrorHelper
+import java.util.Currency
+import javax.lang.model.type.DeclaredType
 
 private fun checkMethodQualifiers(decl: DeclSymbol.FunctionDecl, qual: FunctionQualifiers, ctx: AnalyzeContext) {
     if (!decl.isMethod) {
@@ -26,15 +31,20 @@ private fun checkMethodQualifiers(decl: DeclSymbol.FunctionDecl, qual: FunctionQ
 class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclaratorNode> {
     override fun analyze(node: FunctionDeclaratorNode, ctx: AnalyzeContext): ASTNode {
         //TODO: maybe need to check is node.id.name is unqualified-id for declaration only
-        val signatureType = ctx.resolveType(node.type, ctx.scope).getOrElse{ ctx.error(it); return node; }
-        if(signatureType.hasUndeducedAuto) {
+        node.functionDecl.signatureType = ctx.resolveType(node.type, ctx.scope).getAsOrElse{ ctx.error(it,); return node; }
+        if(node.functionDecl.signatureType.hasUndeducedAuto) {
             ctx.error("Cannot deduce return type from function declaration", node)
             return node;
         }
 
-        node.functionDecl.signatureType = signatureType as SemanticType.Function
-        node.functionDecl.processed = true;
 
+        val original = combineOverloads(node.overloadSet ?: return node, node.functionDecl, ctx)
+        if(original != null) {
+            node.functionDecl = original
+            return node;
+        }
+
+        node.functionDecl.processed = true;
         if (ctx.scope is ClassScope) {
             if(node.id.name == (ctx.scope.ownerSymbol as DeclSymbol.ClassDecl).name) {
                 ctx.error("Constructor cannot have a return type", node)
@@ -54,6 +64,11 @@ class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclaratorNode> {
             }
             checkMethodQualifiers(node.functionDecl, type.qualifiers, ctx)
             node;
+        }.also {
+            val retType = node.functionDecl.returnType
+            if(retType is DeclaredType && !retType.isComplete) {
+                ctx.error("Function return type ${retType} is incomplete", (node.type as FunctionTypeNode).returnType)
+            }
         }
     }
 }
@@ -63,9 +78,18 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
     override fun analyze(node: FunctionDefinitionNode, ctx: AnalyzeContext): ASTNode {
         //TODO: maybe need check for redefinitions
         ctx.analyze(node.declarator, ctx.scope)
-        if (ctx.scope is ClassScope) {
-            if(node.name.name == (ctx.scope.ownerSymbol as DeclSymbol.ClassDecl).name) {
-                ctx.error("Constructor cannot have a return type", node)
+
+        var funcType = node.declarator.functionDecl.signatureType;
+        node.functionDecl.signatureType = funcType
+        val original = combineOverloads(node.overloadSet ?: return node, node.functionDecl, ctx)
+        if(original != null) {
+            if(original.definitionNode == null) {
+                original.definitionNode = node.functionDecl.definitionNode
+                original.scope = node.functionDecl.scope
+                node.functionDecl = original
+            }
+            else {
+                node.functionDecl = original
                 return node;
             }
         }
@@ -85,17 +109,21 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
 
             node.body = ctx.findAnalyzer(node.body).analyze(node.body, ctx) as FunctionBodyNode;
             val bodyRets = node.body.returnStatements
-            var funcType = ctx.resolveType(node.type, ctx.scope, null).getOrElse { ctx.error(it); return@withScope node; }
-            funcType as SemanticType.Function
+
             if (bodyRets != null) {
                 val bodyReturnType = analyzeReturns(bodyRets, node.functionDecl, ctx) ?: ctx.types.void;
 
                 if(funcType.returnType.hasUndeducedAuto) {
-                    funcType = ctx.resolveType(node.type, ctx.scope, ctx.types.getFunction(bodyReturnType, funcType.params, funcType.qualifiers)).getOrElse { ctx.error(it); return@withScope  node; }
+                    funcType = ctx.resolveType(node.type, ctx.scope, ctx.types.getFunction(bodyReturnType, funcType.params, funcType.qualifiers)).getAsOrElse { ctx.error(it,); return@withScope  node; }
                 }
             }
-            node.functionDecl.signatureType = funcType as SemanticType.Function;
+            node.functionDecl.signatureType = funcType
             node;
+        }.also {
+            val retType = node.functionDecl.returnType
+            if(retType is SemanticType.Declared && !retType.isComplete) {
+                ctx.error("Function return type ${retType} is incomplete", node.type.returnType)
+            }
         }
     }
 
@@ -127,6 +155,37 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
         }
         return returnType;
     }
+}
+
+fun combineOverloads(overloadSet: DeclSymbol.FunctionOverloadSet,  functionDecl: DeclSymbol.FunctionDecl, ctx: AnalyzeContext): DeclSymbol.FunctionDecl? {
+    var firstDecl: DeclSymbol.FunctionDecl? = null;
+
+    for(overload in overloadSet.overloads) {
+        if(!overload.processed) break;
+
+        if(ctx.isSameOverloadFun(overload.signatureType, functionDecl.signatureType)) {
+            firstDecl = overload;
+            break
+        }
+    }
+
+    if(firstDecl != null) {
+        if(firstDecl.returnType !== functionDecl.returnType || firstDecl.qualifiers.isNoExcept != functionDecl.qualifiers.isNoExcept) {
+            ctx.error(ErrorHelper.alreadyDefined(functionDecl, firstDecl))
+        }
+
+        if(firstDecl.definitionNode != null) {
+            if(functionDecl.definitionNode != null) {
+                ctx.error(ErrorHelper.alreadyDefined(functionDecl, firstDecl))
+            }
+        }
+
+        overloadSet.overloads.removeAll { it === functionDecl }
+
+
+        return firstDecl
+    }
+    return null
 }
 
 //class FunctionBodyAnalyzer : NodeAnalyzer<FunctionBodyNode> {

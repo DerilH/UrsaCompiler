@@ -16,7 +16,12 @@ import org.derilh.core.RefQualifier
 import org.derilh.core.SourceLocation
 import org.derilh.core.Symbol
 import org.derilh.core.AccessSpecifier
+import org.derilh.core.OpResult
+import org.derilh.core.Options
+import org.derilh.core.getAsOrElse
+import org.derilh.core.getOrNull
 import org.derilh.core.ifFailure
+import org.derilh.core.isSuccess
 import org.derilh.exceptions.ProblemLevel
 import org.derilh.exceptions.SyntaxProblem
 import org.derilh.lexer.BooleanToken
@@ -32,8 +37,9 @@ import org.derilh.lexer.SymbolToken
 import org.derilh.lexer.Token
 import org.derilh.lexer.ValueToken
 import org.derilh.semantic.analyzer.SemanticAnalyzer
+import org.derilh.util.ErrorHelper.Companion.getStackTrace
 
-class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
+class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: Options) {
     private var position: Int = 0
     private val problems: Map<ProblemLevel, MutableList<SyntaxProblem>> = buildMap {
         for (level in ProblemLevel.entries) {
@@ -54,19 +60,19 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
 
     private fun error(message: String, token: Token? = null): RecoveryStatementNode {
         val t = token ?: currentToken()
-        problems[ProblemLevel.ERROR]!!.add(SyntaxProblem(message, ProblemLevel.ERROR, t.location))
+        problems[ProblemLevel.ERROR]!!.add(SyntaxProblem(message, ProblemLevel.ERROR, t.location, getStackTrace(options)))
         return RecoveryStatementNode(t.location)
     }
 
     private fun errorExpr(message: String, token: Token? = null): RecoveryExpressionNode {
         val t = token ?: currentToken()
-        problems[ProblemLevel.ERROR]!!.add(SyntaxProblem(message, ProblemLevel.ERROR, t.location))
+        problems[ProblemLevel.ERROR]!!.add(SyntaxProblem(message, ProblemLevel.ERROR, t.location, getStackTrace(options)))
         return RecoveryExpressionNode(t.location)
     }
 
     private fun warn(message: String, token: Token? = null) {
         val t = token ?: currentToken()
-        problems[ProblemLevel.WARNING]!!.add(SyntaxProblem(message, ProblemLevel.WARNING, t.location))
+        problems[ProblemLevel.WARNING]!!.add(SyntaxProblem(message, ProblemLevel.WARNING, t.location, getStackTrace(options)))
     }
 
     private fun currentToken(): Token =
@@ -285,21 +291,20 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
 
         if (finalType is FunctionTypeNode) {
             var decl: DeclSymbol.FunctionDecl? = null;
+            var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
             if (defineInScope) {
-                decl = sema.resolveSymbols(id, sema.scope, false).filterIsInstance<DeclSymbol.FunctionDecl>().firstOrNull()
-                if (decl == null) {
-                    val classDecl = sema.scope.findCurrentClass();
-                    val defaultParamCount = finalType.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
-                    decl = DeclSymbol.FunctionDecl(id.name, sema.scope.ownerSymbol, finalType.qualifiers, classDecl != null, isBuiltin = false, defaultParamCount)
-                    decl.astNode = id;
-                    sema.scope.define(decl).ifFailure(sema::error)
-                    decl.scope = Scope(sema.scope, decl)
-                }
+                val classDecl = sema.scope.findCurrentClass();
+                val defaultParamCount = finalType.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
+                decl = DeclSymbol.FunctionDecl(id.name, sema.scope.ownerSymbol, finalType.qualifiers, classDecl != null, isBuiltin = false, defaultParamCount)
+                decl.astNode = id;
+                overloadSet = sema.scope.define(decl).getAsOrElse { sema.error(it); null }
+                decl.scope = Scope(sema.scope, decl)
             } else decl = null;
             return FunctionDeclaratorNode(id, finalType, location).also {
                 if (decl != null) {
                     decl.astNode = it
                     it.functionDecl = decl
+                    it.overloadSet = overloadSet;
                 }
             }
         }
@@ -313,7 +318,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
 
         var decl: DeclSymbol.VariableDecl? = null;
         if (defineInScope) {
-            decl = sema.resolveSymbolsLocal(id, sema.scope).filterIsInstance<DeclSymbol.VariableDecl>().firstOrNull()
+            decl = sema.resolveSymbolsLocal(id, sema.scope).getOrNull() as? DeclSymbol.VariableDecl
             if (decl == null) {
                 decl = DeclSymbol.variable(id.name, sema.scope.ownerSymbol)
                 decl.astNode = id;
@@ -645,7 +650,9 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
         }
 
         val right = parseExpression(precedence);
-        return BinaryExpressionNode(left, right, operator.value, computeLocationSpan(left, right))
+        return if (operator oneOf listOf(Operator.DOT, Operator.ARROW, Operator.DOT_STAR, Operator.ARROW_STAR)) {
+            MemberAccessExpressionNode(left, right, operator.value, computeLocationSpan(left, right))
+        } else BinaryExpressionNode(left, right, operator.value, computeLocationSpan(left, right))
     }
 
     private fun computeLocationSpan(vararg expressions: ExpressionNode?): SourceLocation {
@@ -732,10 +739,10 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
                     val id = parseIdentifier();
                     advance = false;
 
-                    val decls = sema.resolveSymbols(id, sema.scope, false).filterIsInstance<DeclSymbol.ClassDecl>();
-                    if (decls.isNotEmpty()) {
+                    val decls = sema.resolveSymbols(id, sema.scope, false).getOrNull() as? DeclSymbol.ClassDecl;
+                    if (decls != null) {
                         typeId = assertFirstId().let { id }
-                    } else error("Unknown type provided: $id")
+                    } else throw IllegalStateException("Unknown type provided: $id")
                 }
 
                 token isA Keyword.UNSIGNED -> {
@@ -809,8 +816,8 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
             }
 
             else -> {
-                error("Invalid type provided: $typeId")
-                PrimitiveTypeNode(PrimitiveTypeKind.INT, isConst, isVolatile, location)
+                throw IllegalStateException("Invalid type provided: $typeId")
+//                PrimitiveTypeNode(PrimitiveTypeKind.INT, isConst, isVolatile, location)
             }
         }
     }
@@ -1119,6 +1126,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
         val declaratorNode = parseDeclarator(PrimitiveTypeNode(PrimitiveTypeKind.VOID, isConst = false, isVolatile = false, location = location), false)
 
         if (declaratorNode !is FunctionDeclaratorNode) {
+            position = lastPos
             return null
         }
 
@@ -1129,24 +1137,22 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
 
         val declType = declaratorNode.type;
         if (declType !is FunctionTypeNode) {
+            position = lastPos
             return error("Invalid constructor declaration provided", currentToken())
         }
 
 
-        var decl = sema.resolveSymbols(classId, sema.scope, false).filterIsInstance<DeclSymbol.ConstructorDecl>().firstOrNull()
-        if (decl == null) {
-            val defaultParamCount = declType.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
-            //TODO: add explicit support
-            decl = DeclSymbol.constructorDecl(classId.name, sema.scope.ownerSymbol, declType.qualifiers, isExplicit = false, defaultParamCount)
-            decl.astNode = declaratorNode;
-            sema.scope.define(decl).ifFailure(sema::error)
-            decl.scope = Scope(sema.scope, decl)
-        }
+        val defaultParamCount = declType.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
+        //TODO: add explicit support
+        val decl = DeclSymbol.constructorDecl(classId.name, sema.scope.ownerSymbol, declType.qualifiers, isExplicit = false, defaultParamCount)
+        decl.astNode = declaratorNode;
+        val overloadSet: DeclSymbol.FunctionOverloadSet? = sema.scope.define(decl).getAsOrElse { sema.error(it); null }
 
         if (currentToken() isA Symbol.SEPARATOR) {
             return ConstructorDeclarationNode(declType, location).also {
                 decl.astNode = it
                 it.ctorDecl = decl
+                it.overloadSet = overloadSet
             }
         } else {
             val memberInitializers = if (currentToken() isA Symbol.COLON) parseMemberInitializerList() else listOf()
@@ -1157,6 +1163,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
                 decl.astNode = it
                 decl.definitionNode = it;
                 it.ctorDecl = decl
+                it.overloadSet = overloadSet;
             };
         }
     }
@@ -1175,22 +1182,32 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
             return error("Invalid function definition provided", currentToken())
         }
 
-        var decl = sema.resolveSymbols(declarator.id, sema.scope, false).filterIsInstance<DeclSymbol.FunctionDecl>().firstOrNull()
-        if (decl == null) {
-            val classDecl = sema.scope.findCurrentClass();
+        val classDecl = sema.scope.findCurrentClass();
 
-            decl = DeclSymbol.FunctionDecl(declarator.id.name, sema.scope.ownerSymbol, funcType.qualifiers, classDecl != null, isBuiltin = false, declarator.defaultParamCount)
-            decl.astNode = declarator;
-            sema.scope.define(decl).ifFailure(sema::error)
-            decl.scope = Scope(sema.scope, decl)
-        }
+        val decl = DeclSymbol.FunctionDecl(declarator.id.name, sema.scope.ownerSymbol, funcType.qualifiers, classDecl != null, isBuiltin = false, declarator.defaultParamCount)
+        decl.astNode = declarator;
+        val overloadSet: DeclSymbol.FunctionOverloadSet? = sema.scope.define(decl).getAsOrElse { sema.error(it); null }
+        decl.scope = Scope(sema.scope, decl)
 
         val body = sema.withScope(decl.scope) {
             for (param in funcType.params) {
                 val name = param.name?.name ?: continue
-                val decl = DeclSymbol.param(name, sema.scope.ownerSymbol)
-                decl.astNode = declarator;
-                sema.scope.define(decl).ifFailure(sema::error)
+                var paramDeclarator = param.declarator;
+                val paramDecl: DeclSymbol;
+                when(paramDeclarator) {
+                    is FunctionDeclaratorNode -> {
+                        paramDecl =  DeclSymbol.functionDecl(name, sema.scope.ownerSymbol, (paramDeclarator.type as FunctionTypeNode).qualifiers, paramDeclarator.defaultParamCount)
+                        paramDeclarator.functionDecl = paramDecl;
+                    }
+                    is VariableDeclaratorNode ->  {
+                        paramDecl =  DeclSymbol.variable(name, sema.scope.ownerSymbol)
+                        paramDeclarator.varDecl = paramDecl;
+                    }
+                    else -> throw IllegalStateException("Invalid declarator type")
+                }
+                paramDecl.astNode = paramDeclarator;
+
+                sema.scope.define(paramDecl).ifFailure(sema::error)
             }
             FunctionBodyNode(parseBlock().statements, location);
         }
@@ -1199,6 +1216,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
             decl.astNode = it
             decl.definitionNode = it
             it.functionDecl = decl
+            it.overloadSet = overloadSet
         }
     }
 
@@ -1339,7 +1357,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
         consume(Symbol.BEGIN)
 
         val nodes = mutableListOf<ASTNode>()
-        while (currentToken() notA Symbol.END) {
+        while (currentToken() notA Symbol.END && currentToken() !is EofToken) {
             if (currentToken() oneOf listOf(Keyword.PUBLIC, Keyword.PRIVATE, Keyword.PROTECTED)) {
                 val keyword = (currentToken() as KeywordToken).value;
                 position++
@@ -1369,7 +1387,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
                     if (statement != EmptyStatementNode) {
                         nodes += statement
                         parseSeparator(false)
-                    }
+                    } else break
                 }
             }
         }
@@ -1401,10 +1419,6 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
         val type = parseType();
         val declarator = parseDeclarator(type, false);
 
-        if (declarator !is AbstractDeclaratorNode && declarator !is VariableDeclaratorNode) {
-            error("Invalid parameter declaration provided", currentToken())
-        }
-
         return ParameterNode(declarator, location)
     }
 
@@ -1428,32 +1442,41 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
 
 
         var leaveCount: Int = 0;
-        var decl: DeclSymbol.NamespaceDecl? = null;
+        var res: OpResult<DeclSymbol.NamespaceDecl>
         if (identifier == null) {
-            decl = findOrCreateNamespaceDef(sema.getAnonNamespaceName(), sema, true);
-            sema.scope.addUsingDirective(decl.scope)
+            res = findOrCreateNamespaceDef(sema.getAnonNamespaceName(), sema, true);
+            if (res.isSuccess()) {
+                sema.scope.addUsingDirective(res.value.scope)
+            }
         } else {
             if (identifier is QualifiedIdentifierNode) {
                 for (qual in identifier.qualifiers) {
-                    val ns = findOrCreateNamespaceDef(qual.name, sema, false)
-                    sema.enterScope(ns.scope);
-                    leaveCount++;
+                    val res = findOrCreateNamespaceDef(qual.name, sema, false)
+                    if (res.isSuccess()) {
+                        sema.enterScope(res.value.scope);
+                        leaveCount++;
+                    }
                 }
             }
 
-            decl = findOrCreateNamespaceDef(identifier.name, sema, false)
+            res = findOrCreateNamespaceDef(identifier.name, sema, false)
         }
 
 
-        sema.enterScope(decl.scope)
-        leaveCount++
+        if (res.isSuccess()) {
+            sema.enterScope(res.value.scope)
+            leaveCount++
+        }
+
 
         val body = NamespaceBodyNode(parseBlock().statements, location);
         repeat(leaveCount) { sema.leaveScope() }
         return NamespaceDeclarationNode(identifier, body, location).also {
             parseSeparator(false)
-            decl.declarations += it
-            it.nsDecl = decl;
+            if (res.isSuccess()) {
+                res.value.declarations += it
+                it.nsDecl = res.value;
+            }
         }
     }
 
@@ -1468,7 +1491,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
         }
         var decl: DeclSymbol.ClassDecl
         if (identifier != null) {
-            val found = sema.resolveSymbols(identifier, sema.scope, false).filterIsInstance<DeclSymbol.ClassDecl>().firstOrNull()
+            val found = sema.resolveSymbols(identifier, sema.scope, false).getOrNull() as? DeclSymbol.ClassDecl;
             if (found == null) {
                 decl = DeclSymbol.classDecl(identifier.name, classType, sema.scope.ownerSymbol)
                 decl.astNode = identifier;
@@ -1482,25 +1505,31 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer) {
         }
 
 
+        val outNode: StatementNode;
         if (currentToken() notA Symbol.SEPARATOR) {
             val body = sema.withScope(decl.scope) {
                 parseClassBody(identifier)
             }
 
-            return ClassDefinitionNode(identifier, classType, body, location).also {
-                parseSeparator(true)
-                decl.astNode = it
-                decl.definitionNode = it
+            outNode = ClassDefinitionNode(identifier, classType, body, location).also {
+                if (decl.definitionNode != null) {
+                    sema.error("Class ${decl.name} has already been defined or declared", it)
+                } else {
+                    decl.astNode = it
+
+                    decl.definitionNode = it
+                }
                 it.classDecl = decl
             }
 
         } else {
-            return ClassDeclarationNode(identifier, classType, location).also { node ->
-                parseSeparator(true)
+            outNode = ClassDeclarationNode(identifier, classType, location).also { node ->
                 decl.astNode = node
                 node.classDecl = decl
             }
         }
+        parseSeparator(true);
+        return outNode;
     }
 
     private fun resolveClassType(token: Token): ClassType {

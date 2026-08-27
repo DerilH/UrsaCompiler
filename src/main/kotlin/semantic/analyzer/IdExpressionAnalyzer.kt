@@ -6,53 +6,32 @@ import org.derilh.analyzer.NodeAnalyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.IdExpressionNode
 import org.derilh.core.ValueCategory
+import org.derilh.core.getOrElse
 
 class IdExpressionAnalyzer : NodeAnalyzer<IdExpressionNode> {
     override fun analyze(node: IdExpressionNode, ctx: AnalyzeContext): ASTNode {
-        var resolved = ctx.resolveSymbolsLocal(node.id, ctx.scope,)
-        if (resolved.isEmpty()) {
-            resolved = ctx.resolveSymbols(node.id, ctx.scope, true)
-        }
-        if (resolved.isEmpty()) {
-            ctx.error("Could not resolve symbol: ${node.id.toDisplayString()}", node)
-            return node;
-        }
-        val hasNonType = resolved.any { it is DeclSymbol.FunctionDecl || it is DeclSymbol.VariableDecl }
-        val filtered = if (hasNonType) {
-            resolved.filterNot { it is DeclSymbol.ClassDecl }
-        } else {
-            resolved
-        }
+        val resolved = ctx.resolveSymbols(node.id, ctx.scope).getOrElse { ctx.error(it,node); return node; }
 
-        val functions = filtered.filterIsInstance<DeclSymbol.FunctionDecl>()
-        val variables = filtered.filterIsInstance<DeclSymbol.VariableDecl>()
-
-        if (variables.isNotEmpty()) {
-            if (variables.size > 1 || functions.isNotEmpty()) {
-                ctx.error("Ambiguous symbol: '${node.id}'", node)
-                return node
-            }
-            val variable = variables.first()
-            node.decl = variable
-            node.resolvedType = variable.type
+        if (resolved is DeclSymbol.VariableDecl) {
+            node.decl = resolved
+            node.resolvedType = resolved.type
             node.valueCategory = ValueCategory.LVALUE
             return node
         }
 
-        if (functions.isNotEmpty()) {
-            if (functions.size == 1) {
-                val fn = functions.first()
-                node.decl = fn
-                node.resolvedType = fn.signatureType
-            } else {
+        if (resolved is DeclSymbol.FunctionDecl) {
+//            if (functions.size == 1) {
+                node.decl = resolved
+                node.resolvedType = resolved.signatureType
+//
+            node.valueCategory = ValueCategory.LVALUE
+            return node
+        }
 //                val overloadSet = DeclSymbol.OverloadSet(node.id, functions)
 //                node.resolvedSymbol = overloadSet
 //                node.resolvedType = SemanticType.Overload // Неопределенный тип перегрузки
                 TODO("Add support for overloads")
-            }
-            node.valueCategory = ValueCategory.LVALUE
-            return node
-        }
+//            }
         //TODO: add ISO lookup standards
         //TODO: Add overload set
         return node

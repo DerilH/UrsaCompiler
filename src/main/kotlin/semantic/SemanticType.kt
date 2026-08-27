@@ -140,6 +140,16 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun hashCode(): Int = Objects.hash(elementType, size)
     }
 
+    class BoundMethod internal constructor(val function: Function, val owner: DeclSymbol.ClassDecl, key: TypeContext.Key) : SemanticType(function.qualifiers.isConst, function.qualifiers.isVolatile, key) {
+        override val isComplete: Boolean = true;
+        override fun dropCV(key: TypeContext.Key): SemanticType = this
+        override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
+        override fun decay(key: TypeContext.Key): SemanticType = this
+        override fun toDisplayString(): String {
+            return "${owner.name}::${function.toDisplayString()}"
+        }
+    }
+
     class Function internal constructor(val returnType: SemanticType, val params: List<SemanticType>, val qualifiers: FunctionQualifiers, key: TypeContext.Key) : SemanticType(qualifiers.isConst, qualifiers.isVolatile, key) {
         override val isComplete: Boolean = true
 
@@ -190,11 +200,11 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun toDisplayString(): String = "${qualifiersPrefix()}${decl.name}"
 
         override fun dropCV(key: TypeContext.Key): SemanticType {
-            return Declared(decl, isConst = false, isVolatile = false, key = key).let { if (it === this) this else it }
+            return key.getOrCreate(Declared(decl, isConst = false, isVolatile = false, key = key)).let { if (it === this) this else it }
         }
 
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType {
-            return Declared(decl, isConst = isConst, isVolatile = isVolatile, key = key).let { if (it === this) this else it }
+            return key.getOrCreate(Declared(decl, isConst = isConst, isVolatile = isVolatile, key = key)).let { if (it === this) this else it }
         }
 
         override fun equals(other: Any?): Boolean {
@@ -296,8 +306,8 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             is Reference -> pointee.containsAuto()
             is RValueReference -> pointee.containsAuto()
             is Array -> elementType.containsAuto()
-
             is MemberPointer -> pointee.containsAuto()
+            is BoundMethod -> function.containsAuto()
 
             is Function -> {
                 returnType.containsAuto() ||

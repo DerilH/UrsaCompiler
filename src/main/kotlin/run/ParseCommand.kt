@@ -6,6 +6,7 @@ import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import org.derilh.PreProcessor
 import org.derilh.ast.Parser
+import org.derilh.core.Options
 import org.derilh.lexer.Lexer
 import org.derilh.semantic.analyzer.SemanticAnalyzer
 import org.derilh.target.TargetInfo
@@ -30,9 +31,10 @@ class ParseCommand : CliktCommand(
         code = preProcessor.preProcess(code, inputPath)
 
         val lexer = Lexer()
-        val tokens = lexer.tokenize(code)
+        val tokens = lexer.tokenize(code, inputPath.toString())
 
-        val parser = Parser(tokens, SemanticAnalyzer(X86_64LinuxTargetInfo))
+        val opts = Options("x86_64Linux", false, false);
+        val parser = Parser(tokens, SemanticAnalyzer(opts), opts)
         val parseResult = parser.parse();
         if(output != null) {
             TODO("Ast output to file not supported yet")

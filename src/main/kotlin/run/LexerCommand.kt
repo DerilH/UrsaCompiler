@@ -26,7 +26,7 @@ class LexerCommand : CliktCommand(
         code = preProcessor.preProcess(code, inputPath)
 
         val lexer = Lexer()
-        val tokens = lexer.tokenize(code)
+        val tokens = lexer.tokenize(code, inputPath.toString())
         if(output != null) {
             Files.createFile(output!!).writeText(tokens.joinToString("\n") { it.toString() })
         } else {

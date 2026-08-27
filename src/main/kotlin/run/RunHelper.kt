@@ -4,6 +4,7 @@ import com.sun.management.ThreadMXBean
 import org.derilh.PreProcessor
 import org.derilh.ast.ParseResult
 import org.derilh.ast.Parser
+import org.derilh.core.Options
 import org.derilh.lexer.Lexer
 import org.derilh.semantic.AnalyzeResult
 import org.derilh.semantic.analyzer.SemanticAnalyzer
@@ -16,22 +17,17 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
 class RunHelper {
     companion object{
 
-        fun analyze(code: String, path:Path, target: String): Pair<ParseResult, AnalyzeResult> {
+        fun analyze(code: String, path:Path, options: Options = Options("x86_64Linux", false, false)): Pair<ParseResult, AnalyzeResult> {
             withMemoryWatchdog(1024) {
                 val preProcessor = PreProcessor();
                 val code = preProcessor.preProcess(code, path)
 
                 val lexer = Lexer()
-                val tokens = lexer.tokenize(code)
+                val tokens = lexer.tokenize(code, path.toString())
 
+                val sema = SemanticAnalyzer(options);
 
-                val targetInfo = when (target) {
-                    "x86_64Linux" -> X86_64LinuxTargetInfo;
-                    else -> throw IllegalArgumentException("Unknown target: $target")
-                }
-                val sema = SemanticAnalyzer(targetInfo);
-
-                val parser = Parser(tokens, sema)
+                val parser = Parser(tokens, sema, options)
                 val parseResult = parser.parse();
 
                 return parseResult to sema.analyze(parseResult.root);

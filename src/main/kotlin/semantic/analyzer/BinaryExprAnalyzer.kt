@@ -3,7 +3,6 @@ package org.derilh.analyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.BinaryExpressionNode
 import org.derilh.ast.ExpressionNode
-import org.derilh.ast.UnaryExpressionNode
 import org.derilh.core.OpResult
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
@@ -14,7 +13,6 @@ import org.derilh.semantic.SemanticType
 import org.derilh.semantic.isDeclared
 import org.derilh.semantic.isPointer
 import org.derilh.semantic.isPrimitive
-import kotlin.math.exp
 
 class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
     override fun analyze(node: BinaryExpressionNode, ctx: AnalyzeContext): ASTNode {
@@ -61,10 +59,9 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
                     OpResult.success(node)
                 }
             }
-
             else -> OpResult.failure("Cannot apply operator '${node.operator}' to types '${leftType}' and '${rightType}'", node)
         }
-        return result.getOrElse { ctx.error(it); return node; }
+        return result.getOrElse { ctx.error(it,); return node; }
     }
 
 
