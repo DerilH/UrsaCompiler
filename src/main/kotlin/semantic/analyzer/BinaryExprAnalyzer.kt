@@ -13,6 +13,7 @@ import org.derilh.semantic.SemanticType
 import org.derilh.semantic.isDeclared
 import org.derilh.semantic.isPointer
 import org.derilh.semantic.isPrimitive
+import org.derilh.util.ErrorHelper
 
 class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
     override fun analyze(node: BinaryExpressionNode, ctx: AnalyzeContext): ASTNode {
@@ -249,7 +250,7 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
                     rightType
                 } else if (leftType.kind.isFloat && rightType.kind.isInt || (isBothFloat && leftKind.floatRank > rightKind.floatRank || (!isRanksEqual && leftKind.floatSubRank > rightKind.floatRank))) {
                     leftType
-                } else return OpResult.failure("Cannot convert '${leftType}' to '${rightType}'", node)
+                } else return ErrorHelper.cannotConvert(leftType, rightType, node)
             } else if (leftKind.isInt && rightKind.isInt) {
                 val leftType = ctx.types.getPrimitive(ctx.target.promoteIntegralType(leftKind))
                 val rightType = ctx.types.getPrimitive(ctx.target.promoteIntegralType(rightKind))
@@ -272,7 +273,7 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
                         ctx.types.getPrimitive(signedType.kind.toUnsigned())
                     }
                 }
-            } else return OpResult.failure("Cannot convert '${leftType}' to '${rightType}'", node)
+            } else return ErrorHelper.cannotConvert(leftType, rightType, node)
         } else resolvedType = leftType;
         node.left = ctx.buildConversion(node.left, resolvedType, ValueCategory.PRVALUE).getOrElse { return it; };
         node.right = ctx.buildConversion(node.right, resolvedType, ValueCategory.PRVALUE).getOrElse { return it; };

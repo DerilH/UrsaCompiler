@@ -199,7 +199,9 @@ interface IFunctionDeclaratorNode : INamedDeclaratorNode {
     val defaultParamCount: Int
 }
 
-interface IAbstractDeclaratorNode : IDeclaratorNode
+interface IAbstractDeclaratorNode : IDeclaratorNode {
+    val initializer: IExpressionNode?
+}
 
 interface IDeclarationSequenceNode : IDeclarationNode {
     val typeSpecifier: ITypeNode

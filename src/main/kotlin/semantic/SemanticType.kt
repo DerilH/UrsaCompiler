@@ -291,7 +291,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
     class Error constructor(key: TypeContext.Key, override val isComplete: Boolean = false) : SemanticType(key = key) {
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
-        override fun toDisplayString(): String = "Recovery"
+        override fun toDisplayString(): String = "Error"
     }
 
     protected fun qualifiersPrefix(): String {

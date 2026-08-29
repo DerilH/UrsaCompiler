@@ -467,11 +467,7 @@ class ConstructorDeclarationNode(
 
     override val children: List<ASTNode>
         get() = listOfNotNull(type)
-    override val defaultParamCount: Int
-        get() {
-            val type = type;
-            return type.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
-        }
+    override val defaultParamCount: Int = countDefaultParams(type)
 
     override val isExplicit: Boolean = false //TODO: Add explicit modifier
 
@@ -490,11 +486,7 @@ class ConstructorDefinitionNode(
         get() = listOfNotNull(type) + body + memberInitializers
 
     override val isExplicit: Boolean = false //TODO: Add explicit modifier
-    override val defaultParamCount: Int
-        get() {
-            val type = type;
-            return type.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
-        }
+    override val defaultParamCount: Int = countDefaultParams(type)
 
     override fun toString(): String = "ConstructorDefinitionNode()"
 }
@@ -645,7 +637,7 @@ class IdExpressionNode(override val id: IdentifierNode, override val location: S
 
 class CallExpressionNode(
     override val callable: ExpressionNode?,
-    override val arguments: ArgumentsNode, override val location: SourceLocation?
+    override var arguments: ArgumentsNode, override val location: SourceLocation?
 ) : ExpressionNode(), ICallExpressionNode {
     var functionDecl: DeclSymbol.FunctionDecl? = null
     override val children: List<ASTNode> get() = listOfNotNull(callable) + arguments
@@ -695,11 +687,8 @@ class VariableDeclaratorNode(id: IdentifierNode, type: TypeNode, override var in
 class FunctionDeclaratorNode(id: IdentifierNode, type: FunctionTypeNode, location: SourceLocation?) : NamedDeclaratorNode(id, type, location), IFunctionDeclaratorNode {
     var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
     lateinit var functionDecl: DeclSymbol.FunctionDecl;
-    override val defaultParamCount: Int
-        get() {
-            val type = type as FunctionTypeNode;
-            return type.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
-        }
+    override val defaultParamCount: Int = countDefaultParams(type)
+
 
     override fun toString(): String {
         return "FunctionDeclaratorNode"
@@ -711,7 +700,7 @@ sealed class NamedDeclaratorNode(override val id: IdentifierNode, type: TypeNode
         get() = super.children + id
 }
 
-class AbstractDeclaratorNode(type: TypeNode, location: SourceLocation?) : DeclaratorNode(type, location), IAbstractDeclaratorNode
+class AbstractDeclaratorNode(type: TypeNode, override val initializer: IExpressionNode?, location: SourceLocation?) : DeclaratorNode(type, location), IAbstractDeclaratorNode
 
 sealed class DeclaratorNode(override var type: TypeNode, override val location: SourceLocation?) : ASTNode, IDeclaratorNode {
     override val children: List<ASTNode>
@@ -866,3 +855,8 @@ data class RootNode(
     lateinit var scope: GlobalScope;
     override val children: List<ASTNode> get() = declarations
 }
+
+fun countDefaultParams(type: FunctionTypeNode): Int {
+    return type.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null || (it.declarator as? AbstractDeclaratorNode)?.initializer != null }
+}
+

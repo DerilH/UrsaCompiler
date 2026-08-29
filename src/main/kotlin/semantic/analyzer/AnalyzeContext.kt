@@ -7,6 +7,7 @@ import org.derilh.ast.TypeNode
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.OpResult
+import org.derilh.core.SourceLocation
 import org.derilh.core.ValueCategory
 import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
@@ -50,7 +51,7 @@ interface AnalyzeContext {
     fun getRefValueCategory(returnType: SemanticType): ValueCategory;
     fun getUnderlyingTypeForADL(type: SemanticType): SemanticType
     fun buildConversion(fromExpr: ExpressionNode, to: SemanticType, toVC: ValueCategory): OpResult<ExpressionNode>;
-
+    fun probeCallArgs(declParams: List<SemanticType>, defaultCount: Int, inParams: List<ExpressionInfo>, location: SourceLocation?, breakOnMiss: Boolean): List<OpResult<ConversionSequence>>;
     fun getNextAnonId(): Int {
         return anonymousIdCounter++;
     }

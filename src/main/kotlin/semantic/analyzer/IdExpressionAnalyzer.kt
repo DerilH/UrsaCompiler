@@ -10,7 +10,7 @@ import org.derilh.core.getOrElse
 
 class IdExpressionAnalyzer : NodeAnalyzer<IdExpressionNode> {
     override fun analyze(node: IdExpressionNode, ctx: AnalyzeContext): ASTNode {
-        val resolved = ctx.resolveSymbols(node.id, ctx.scope).getOrElse { ctx.error(it,node); return node; }
+        val resolved = ctx.resolveSymbols(node.id, ctx.scope).getOrElse { ctx.error(it,node); null; }
 
         if (resolved is DeclSymbol.VariableDecl) {
             node.decl = resolved
@@ -21,6 +21,7 @@ class IdExpressionAnalyzer : NodeAnalyzer<IdExpressionNode> {
 
         node.resolvedType = ctx.types.getError();
         node.valueCategory = ValueCategory.PRVALUE
+
 
 
 

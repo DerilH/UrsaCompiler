@@ -58,6 +58,13 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return ParseResult(problems, root)
     }
 
+    private fun errorType(message: String, token: Token? = null): ErrorTypeNode {
+        val t = token ?: currentToken()
+        problems[ProblemLevel.ERROR]!!.add(SyntaxProblem(message, ProblemLevel.ERROR, t.location, getStackTrace(options)))
+        return ErrorTypeNode(t.location)
+    }
+
+
     private fun error(message: String, token: Token? = null): RecoveryStatementNode {
         val t = token ?: currentToken()
         problems[ProblemLevel.ERROR]!!.add(SyntaxProblem(message, ProblemLevel.ERROR, t.location, getStackTrace(options)))
@@ -287,9 +294,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
     private fun parseDeclarator(baseType: TypeNode, defineInScope: Boolean = true): DeclaratorNode {
         val location = currentToken().location
         val (id, finalType) = parseDeclaratorInternal(baseType)
-        if (id == null) return AbstractDeclaratorNode(finalType, location);
-
-        if (finalType is FunctionTypeNode) {
+        if (finalType is FunctionTypeNode && id != null) {
             var decl: DeclSymbol.FunctionDecl? = null;
             var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
             if (defineInScope) {
@@ -317,6 +322,9 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
 
         var decl: DeclSymbol.VariableDecl? = null;
+        if(id == null) {
+            return AbstractDeclaratorNode(finalType, initializer, location);
+        }
         if (defineInScope) {
             decl = sema.resolveSymbolsLocal(id, sema.scope).getOrNull() as? DeclSymbol.VariableDecl
             if (decl == null) {
@@ -1409,7 +1417,11 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
     private fun parseParameter(): ParameterNode {
         val location = currentToken().location
-        val type = tryParseType() ?: ErrorTypeNode(location);
+        var type = tryParseType();
+        if(type == null) {
+            type = errorType("Cannot parse type in parameter", currentToken())
+            position++
+        }
         val declarator = parseDeclarator(type, false);
 
         return ParameterNode(declarator, location)

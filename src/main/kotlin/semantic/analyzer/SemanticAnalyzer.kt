@@ -98,6 +98,7 @@ import org.derilh.semantic.TypeContext
 import org.derilh.semantic.isFunctionPointer
 import org.derilh.target.TargetInfo
 import org.derilh.target.X86_64LinuxTargetInfo
+import org.derilh.util.ErrorHelper
 import org.derilh.util.ErrorHelper.Companion.getStackTrace
 import java.math.BigInteger
 import kotlin.collections.mapNotNullTo
@@ -153,6 +154,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         UnaryExpressionNode::class to UnaryExprAnalyzer(),
         BinaryExpressionNode::class to BinaryExprAnalyzer(),
         MemberAccessExpressionNode::class to MemberAccessExprAnalyzer(),
+        CallExpressionNode::class to CallExprAnalyzer(),
 
         RecoveryExpressionNode::class to RecoveryAnalyzer(),
         RecoveryStatementNode::class to RecoveryAnalyzer()
@@ -552,7 +554,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                 )
             }
             is ErrorTypeNode -> {
-                return OpResult.failure("Cannot resolve type", typeNode)
+                types.getError();
             }
         }
 
@@ -661,27 +663,10 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
         val viable = mutableSetOf<ViableCandidate<T>>()
 
-        for (decl in decls) {
-            if (inParams.size < (decl.params.size - decl.defaultParamsCount) || inParams.size > decl.params.size) continue
-
-            val seqs = mutableListOf<ConversionSequence>()
-            var isViable = true
-
-            for (i in inParams.indices) {
-                val expr = inParams[i]
-                val paramType = decl.params[i]
-
-                val seq = findImplicitCastSeq(expr.type, expr.valueCategory, paramType, ValueCategory.PRVALUE, expr.isNullConstant)
-                if (seq.isEmpty()) {
-                    isViable = false
-                    break
-                }
-                seqs.addAll(seq)
-            }
-
-            if (isViable) {
-                viable.add(ViableCandidate(decl, seqs))
-            }
+        loop@ for (decl in decls) {
+            val res = probeCallArgs(decl.params, decl.defaultParamsCount, inParams, decl.astNode.location, breakOnMiss = true);
+            val conversions = res.map { it.getOrElse { continue@loop; } };
+            viable += ViableCandidate(decl, conversions)
         }
 
         if (viable.isEmpty()) return emptySet()
@@ -697,6 +682,28 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             return@removeIf false
         }
         return viable
+    }
+
+    override fun probeCallArgs(declParams: List<SemanticType>, defaultCount: Int, inParams: List<ExpressionInfo>, location: SourceLocation?, breakOnMiss: Boolean): List<OpResult<ConversionSequence>> {
+        if (inParams.size < (declParams.size - defaultCount) || inParams.size > declParams.size) return listOf(ErrorHelper.argsCountMiss(declParams.size, inParams.size, location))
+
+        val seqs = mutableListOf<OpResult<ConversionSequence>>()
+
+        for (i in inParams.indices) {
+            val inParam = inParams[i]
+            val declType = declParams[i]
+
+            val seq = findImplicitCastSeq(inParam.type, inParam.valueCategory, declType, getRefValueCategory(declType), inParam.isNullConstant)
+            if (seq.isEmpty()) {
+
+                seqs += ErrorHelper.cannotConvert(inParam.type, declType, inParam.location)
+                if(breakOnMiss) return seqs;
+            } else if(seq.size > 1) {
+                seqs += ErrorHelper.ambiguousConversion(inParam.type, declType, inParam.location)
+            }
+            else seqs += OpResult.success(seq.first());
+        }
+        return seqs;
     }
 
     private fun <T> isBetterCandidateThan(a: ViableCandidate<T>, b: ViableCandidate<T>, numArgs: Int): Boolean {
@@ -1103,11 +1110,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             is StdConversionSequence -> buildStdConversionNodes(base, seq)
             is UserConversionSequence -> {
                 var node = buildStdConversionNodes(base, seq.firstScs);
-                node = CallExpressionNode(
-                    null,
-                    ArgumentsNode(listOf(node), SourceLocation.EXPORTED),
-                    SourceLocation.EXPORTED
-                );
+                node = CallExpressionNode(null, ArgumentsNode(listOf(node), SourceLocation.EXPORTED), SourceLocation.EXPORTED);
                 node.functionDecl = seq.method
                 node.resolvedType = seq.method.returnType;
                 node.valueCategory = getRefValueCategory(seq.method.returnType);
