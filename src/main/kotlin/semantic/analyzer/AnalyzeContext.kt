@@ -55,8 +55,8 @@ interface AnalyzeContext {
         return anonymousIdCounter++;
     }
 
-    fun getAnonClassName() = "<anonymous_class_$anonymousIdCounter>"
-    fun getAnonNamespaceName() = "<anonymous_ns_$anonymousIdCounter>"
+    fun getAnonClassName() = "<anonymous_class_${getNextAnonId()}>"
+    fun getAnonNamespaceName() = "<anonymous_ns_${getNextAnonId()}>"
 
     fun isNullPointerConstant(expr: ExpressionNode): Boolean {
         val type = (expr.resolvedType as? SemanticType.Primitive) ?: return false
