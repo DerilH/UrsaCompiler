@@ -9,7 +9,7 @@ import org.derilh.ast.StatementNode
 import org.derilh.core.ValueCategory
 import org.derilh.core.getOrElse
 
-class IfStatementAnalyzer : NodeAnalyzer<IfStatementNode> {
+class IfStmtAnalyzer : NodeAnalyzer<IfStatementNode> {
     override fun analyze(node: IfStatementNode, ctx: AnalyzeContext): ASTNode {
         val ownerFun = ctx.scope.findCurrentFunction()
         if (ownerFun == null) {
@@ -21,7 +21,7 @@ class IfStatementAnalyzer : NodeAnalyzer<IfStatementNode> {
         if (node.condition.resolvedType == null) return node;
 
         node.condition = ctx.buildConversion(node.condition, ctx.types.bool, ValueCategory.PRVALUE)
-            .getOrElse { ctx.error(it,); return node };
+            .getOrElse { ctx.error(it); return node };
 
 
         val returns = mutableListOf<ReturnStatementNode>()
@@ -32,8 +32,7 @@ class IfStatementAnalyzer : NodeAnalyzer<IfStatementNode> {
                 val body = node.body;
                 if (body !is CompoundStatementNode) {
                     throw IllegalStateException("If statement body must be compound statement")
-                }
-                if (body.returnStatements != null) {
+                } else if (body.returnStatements != null) {
                     returns += body.returnStatements!!
                 }
             }

@@ -14,7 +14,7 @@ import org.derilh.analyzer.DeclSymbol
 import org.derilh.analyzer.DeclarationSeqAnalyzer
 import org.derilh.analyzer.FloatLiteralAnalyzer
 import org.derilh.analyzer.GlobalScope
-import org.derilh.analyzer.IfStatementAnalyzer
+import org.derilh.analyzer.IfStmtAnalyzer
 import org.derilh.analyzer.IntLiteralAnalyzer
 import org.derilh.analyzer.MemberAccessExprAnalyzer
 import org.derilh.analyzer.NamespaceDeclAnalyzer
@@ -28,6 +28,7 @@ import org.derilh.analyzer.StringLiteralAnalyzer
 import org.derilh.analyzer.TypeCastExprAnalyzer
 import org.derilh.analyzer.UnaryExprAnalyzer
 import org.derilh.analyzer.VarDeclaratorAnalyzer
+import org.derilh.analyzer.WhileStmtAnalyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.AbstractDeclaratorNode
 import org.derilh.ast.AccessSpecifierNode
@@ -78,6 +79,7 @@ import org.derilh.ast.RecoveryStatementNode
 import org.derilh.ast.ErrorTypeNode
 import org.derilh.ast.ReturnStatementNode
 import org.derilh.ast.VariableDeclaratorNode
+import org.derilh.ast.WhileStatementNode
 import org.derilh.core.ConversionKind
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.OpResult
@@ -111,6 +113,8 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     override val rootScope: Scope get() = innerRootScope ?: throw IllegalStateException("Not in any scope")
     override var types: TypeContext;
     override var idContext: IdContext = IdContext.NONE;
+    override var loopDepth: Int = 0
+    override var switchDepth: Int = 0
     private var innerRootScope: Scope? = null;
     private var innerScope: Scope? = null
     private val problems: Map<ProblemLevel, MutableList<SemanticProblem>> = buildMap {
@@ -140,7 +144,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         FunctionDeclaratorNode::class to FunctionDeclAnalyzer(),
         FunctionDefinitionNode::class to FunctionDefAnalyzer(),
         ReturnStatementNode::class to ReturnStmtAnalyzer(),
-        IfStatementNode::class to IfStatementAnalyzer(),
+        IfStatementNode::class to IfStmtAnalyzer(),
         ParameterNode::class to ParameterNodeAnalyzer(),
 
         AccessSpecifierNode::class to AccessSpecifierAnalyzer(),
@@ -156,6 +160,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         BinaryExpressionNode::class to BinaryExprAnalyzer(),
         MemberAccessExpressionNode::class to MemberAccessExprAnalyzer(),
         CallExpressionNode::class to CallExprAnalyzer(),
+        WhileStatementNode::class to WhileStmtAnalyzer(),
 
         RecoveryExpressionNode::class to RecoveryAnalyzer(),
         RecoveryStatementNode::class to RecoveryAnalyzer()

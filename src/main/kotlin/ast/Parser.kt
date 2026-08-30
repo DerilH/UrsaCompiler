@@ -167,7 +167,6 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         val location = currentToken().location
         consume(Keyword.IF)
 
-
         //TODO: Add inplace var decl support
         consume(Symbol.LPAREN)
         val condition = parseExpression();
@@ -259,13 +258,25 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
     private fun parseWhileStatement(): WhileStatementNode {
         val location = currentToken().location
+        //TODO: Add inplace var decl support
+
+        val scope = Scope(sema.scope, null)
+        lateinit var bodyScope: Scope;
         consume(Keyword.WHILE)
+        consume(Symbol.LPAREN)
         val condition = parseExpression()
-        var body = tryParseStmtOrSingleExpression()
-        if (body == null) {
-            body = error("Empty while body", currentToken())
+        consume(Symbol.RPAREN)
+
+        val body = sema.withScope(scope) {
+            bodyScope = Scope(sema.scope, null)
+            sema.withScope(bodyScope) {
+                tryParseStmtOrSingleExpression() ?: error("Empty while body", currentToken())
+            }
         }
-        return WhileStatementNode(condition, body, location)
+        return WhileStatementNode(condition, body, location).also {
+            it.scope = scope;
+            it.bodyScope = bodyScope;
+        }
     }
 
     private fun parseReturnStatement(): ReturnStatementNode {

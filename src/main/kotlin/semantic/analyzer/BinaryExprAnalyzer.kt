@@ -177,7 +177,7 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
     private fun resolvePrimitivesOp(leftType: SemanticType.Primitive, rightType: SemanticType.Primitive, node: BinaryExpressionNode, ctx: AnalyzeContext): OpResult<ExpressionNode> {
         val leftKind = leftType.kind;
         val rightKind = rightType.kind;
-        //TODO SET PROPER expected value category
+        //TODO: SET PROPER expected value category
 
         return when (node.operator) {
             Operator.PLUS, Operator.MINUS, Operator.POINTER, Operator.DIVIDE,

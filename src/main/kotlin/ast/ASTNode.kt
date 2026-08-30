@@ -700,7 +700,7 @@ sealed class NamedDeclaratorNode(override val id: IdentifierNode, type: TypeNode
         get() = super.children + id
 }
 
-class AbstractDeclaratorNode(type: TypeNode, override val initializer: IExpressionNode?, location: SourceLocation?) : DeclaratorNode(type, location), IAbstractDeclaratorNode
+class AbstractDeclaratorNode(type: TypeNode, override val initializer: ExpressionNode?, location: SourceLocation?) : DeclaratorNode(type, location), IAbstractDeclaratorNode
 
 sealed class DeclaratorNode(override var type: TypeNode, override val location: SourceLocation?) : ASTNode, IDeclaratorNode {
     override val children: List<ASTNode>
@@ -744,8 +744,10 @@ class ContinueStatementNode(location: SourceLocation?) : StatementNode(location)
     override fun toString(): String = "ContinueStatementNode"
 }
 
-class WhileStatementNode(override var condition: ASTNode, override val body: StatementNode, location: SourceLocation?) : StatementNode(location), IWhileStatementNode, IReturnableNode {
+class WhileStatementNode(override var condition: ExpressionNode, override var body: StatementNode, location: SourceLocation?) : StatementNode(location), IWhileStatementNode, IReturnableNode {
     override val children: List<ASTNode> get() = listOf(condition, body)
+    lateinit var scope: Scope;
+    lateinit var bodyScope: Scope;
     override var returnStatements: List<ReturnStatementNode>? = null
 }
 

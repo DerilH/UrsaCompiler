@@ -222,7 +222,7 @@ interface IBreakStatementNode : IStatementNode
 interface IContinueStatementNode : IStatementNode
 
 interface IWhileStatementNode : IStatementNode {
-    val condition: IASTNode
+    val condition: IExpressionNode
     val body: IStatementNode
 }
 

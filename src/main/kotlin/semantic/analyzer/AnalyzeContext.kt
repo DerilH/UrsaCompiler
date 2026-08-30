@@ -25,6 +25,8 @@ interface AnalyzeContext {
     val rootScope: Scope
     val types: TypeContext
     var idContext: IdContext;
+    var loopDepth: Int;
+    var switchDepth: Int;
 
     fun enterScope(owner: Scope)
     fun enterScope()
@@ -74,4 +76,7 @@ interface AnalyzeContext {
             true
         } else ((expr.evaluated as? BigInteger)?.signum() == 0)
     }
+
+    val allowBreak: Boolean get() = loopDepth > 0 || switchDepth > 0
+    val allowContinue: Boolean get() = loopDepth > 0
 }

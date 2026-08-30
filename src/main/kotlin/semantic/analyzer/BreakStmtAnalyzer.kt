@@ -4,12 +4,8 @@ import org.derilh.ast.ASTNode
 import org.derilh.ast.AbstractDeclaratorNode
 import org.derilh.core.ifFailure
 
-class AbstractDeclaratorAnalyzer : NodeAnalyzer<AbstractDeclaratorNode> {
+class BreakStmtAnalyzer : NodeAnalyzer<AbstractDeclaratorNode> {
     override fun analyze(node: AbstractDeclaratorNode, ctx: AnalyzeContext): ASTNode {
-        ctx.resolveType(node.type, ctx.scope).ifFailure(ctx::error);
-        node.initializer?.let{
-            ctx.analyze(it, ctx.scope);
-        }
         return node;
     }
 }
