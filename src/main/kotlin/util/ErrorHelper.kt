@@ -6,6 +6,7 @@ import org.derilh.core.OpResult
 import org.derilh.core.Options
 import org.derilh.core.SourceLocation
 import org.derilh.semantic.SemanticType
+import org.derilh.semantic.analyzer.ViableCandidate
 
 class ErrorHelper {
     companion object {
@@ -33,6 +34,14 @@ class ErrorHelper {
 
         fun alreadyDefined(new: DeclSymbol, old: DeclSymbol, vararg args: Any): OpResult.Failure {
             return OpResult.failure("${getSymbolText(new)} has already been defined as a ${getSymbolText(old)}", new.astNode, args)
+        }
+
+        fun <T> checkViableSet(viable: Collection<ViableCandidate<T>>, name: String, location: SourceLocation): OpResult<ViableCandidate<T>> {
+            return when {
+                viable.isEmpty() -> OpResult.failure("Cannot resolve symbol ${name}", location);
+                viable.size == 1 -> OpResult.success(viable.first());
+                else -> OpResult.failure("Ambiguous overloads for ${name}", location);
+            }
         }
 
         private fun getSymbolText(symbol: DeclSymbol): String = when (symbol) {

@@ -58,7 +58,7 @@ class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclaratorNode> {
             for (param in type.params) {
                 ctx.analyze(param, ctx.scope)
                 if(hasDefault && !param.hasDefaultValue) {
-                    ctx.error("Missing default value on parameter ${param.name}", node = param)
+                    ctx.error("Missing default value on parameter ${param.name?.toDisplayString()}", node = param)
                 }
                 else hasDefault = hasDefault || param.hasDefaultValue;
             }
@@ -101,7 +101,7 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
             for (param in node.type.params) {
                 ctx.analyze(param, ctx.scope)
                 if(hasDefault && !param.hasDefaultValue) {
-                    ctx.error("Missing default value on parameter ${param.name}", node = param)
+                    ctx.error("Missing default value on parameter ${param.name?.toDisplayString()}", node = param)
                 }
                 else hasDefault = hasDefault || param.hasDefaultValue;
             }

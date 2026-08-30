@@ -105,11 +105,12 @@ import kotlin.collections.mapNotNullTo
 import kotlin.collections.plusAssign
 
 class SemanticAnalyzer(val options: Options) : AnalyzeContext {
-    override lateinit var target: TargetInfo;
+    override var target: TargetInfo;
     override var anonymousIdCounter: Int = 0;
     override val scope: Scope get() = innerScope ?: innerRootScope ?: throw IllegalStateException("Not in any scope")
     override val rootScope: Scope get() = innerRootScope ?: throw IllegalStateException("Not in any scope")
-    override lateinit var types: TypeContext;
+    override var types: TypeContext;
+    override var idContext: IdContext = IdContext.NONE;
     private var innerRootScope: Scope? = null;
     private var innerScope: Scope? = null
     private val problems: Map<ProblemLevel, MutableList<SemanticProblem>> = buildMap {
@@ -161,7 +162,6 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     )
 
     companion object {
-        const val CONSTRUCTOR_FUN_PREFIX = ".ctor"
         const val OPERATOR_FUN_PREFIX = ".op_"
         const val CONVERSION_OP_FUN_PREFIX = ".op_conv"
 
@@ -260,7 +260,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     init {
         target = when (options.target) {
             "x86_64Linux" -> X86_64LinuxTargetInfo;
-            else -> throw IllegalArgumentException("Unknown target: $target")
+            else -> throw IllegalArgumentException("Unknown target: ${options.target}")
         }
         types = TypeContext(target.types.sizeType, target.types.ptrDiffType)
     }
@@ -366,6 +366,11 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             else -> currentScope.lookupLocal(node.name, processedOnly)
         }
     }
+
+    override fun resolveSymbolsLocal(name: String, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
+        return currentScope.lookupLocal(name, processedOnly)
+    }
+
 
     override fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
         return currentScope.lookupUnqualified(node, processedOnly)
@@ -553,6 +558,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                     isVolatile = typeNode.isVolatile
                 )
             }
+
             is ErrorTypeNode -> {
                 types.getError();
             }
@@ -570,15 +576,20 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         }
     }
 
+
+    override fun resolveOpOverloads(scope: Scope, op: Operator, isBinary: Boolean, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo?): Set<ViableCandidate<DeclSymbol.FunctionDecl>> {
+        return resolveOpOverloads(scope, op.value, isBinary, leftOperand, rightOperand)
+    }
+
     override fun resolveOpOverloads(
         scope: Scope,
-        op: Operator,
+        op: String,
         isBinary: Boolean,
         leftOperand: ExpressionInfo,
         rightOperand: ExpressionInfo?
     ): Set<ViableCandidate<DeclSymbol.FunctionDecl>> {
         //TODO: checking for visibility modifiers
-        val name = "${OPERATOR_FUN_PREFIX}${op.value}"
+        val name = "${OPERATOR_FUN_PREFIX}${op}"
 //        val scope = resolveSymbols(IdentifierNode(name, SourceLocation.EXPORTED), scope).filterIsInstance<DeclSymbol.OperatorFunctionDecl>().toMutableList()
         val matches = mutableListOf<ViableCandidate<DeclSymbol.FunctionDecl>>()
         val nonRefLeft = types.removeRef(leftOperand.type)
@@ -611,7 +622,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             val unqualifiedSet = resolveSymbolsUnqualified(name, scope).getAsOrNull<DeclSymbol.FunctionOverloadSet>()
             unqualifiedSet?.let { freeCandidates.addAll(it.overloads) }
 
-            if (op == Operator.AMP && leftOperand.valueCategory == ValueCategory.LVALUE) {
+            if (op == Operator.AMP.value && leftOperand.valueCategory == ValueCategory.LVALUE) {
                 val builtinOp = DeclSymbol.builtinOpFunction(
                     name,
                     types.getFunction(types.getPointer(nonRefLeft), listOf(types.getReference(nonRefLeft)), FunctionQualifiers())
@@ -625,7 +636,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                 matches += findBestMatch(freeCandidates.toList(), listOf(leftRef))
             }
         }
-        return matches.distinctBy { System.identityHashCode(it) }.toSet();
+        return matches.distinctBy { System.identityHashCode(it.decl) }.toSet();
     }
 
     fun findBestLocal(name: String, scope: Scope, op: ExpressionInfo): Set<ViableCandidate<DeclSymbol.FunctionDecl>> {
@@ -656,7 +667,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         return findBestMatch(listOfNotNull(ctor), params)
     }
 
-    private fun <T : DeclSymbol.FunctionDecl> findBestMatch(
+    override fun <T : DeclSymbol.FunctionDecl> findBestMatch(
         decls: Collection<T>,
         inParams: List<ExpressionInfo>
     ): Set<ViableCandidate<T>> {
@@ -697,11 +708,10 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             if (seq.isEmpty()) {
 
                 seqs += ErrorHelper.cannotConvert(inParam.type, declType, inParam.location)
-                if(breakOnMiss) return seqs;
-            } else if(seq.size > 1) {
+                if (breakOnMiss) return seqs;
+            } else if (seq.size > 1) {
                 seqs += ErrorHelper.ambiguousConversion(inParam.type, declType, inParam.location)
-            }
-            else seqs += OpResult.success(seq.first());
+            } else seqs += OpResult.success(seq.first());
         }
         return seqs;
     }
@@ -832,8 +842,8 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     ): Set<ConversionSequence> {
 
         fun findCtorConv(toType: SemanticType.Declared): Set<ConversionSequence> {
-            val ctors = toType.decl.scope.lookupLocal(CONSTRUCTOR_FUN_PREFIX, true).getOrNull() as? DeclSymbol.ConstructorDecl;
-            val bestCtors = findBestMatch(listOfNotNull(ctors), listOf(ExpressionInfo(fromType, fromVC, false)))
+            val ctors = toType.decl.scope.getConstructors();
+            val bestCtors = findBestMatch(ctors.overloads, listOf(ExpressionInfo(fromType, fromVC, false)))
             val scs2 = findStdConversionSeq(types.dropCV(toType), ValueCategory.PRVALUE, toType, toVC, false)
                     ?: return emptySet();
 
@@ -856,13 +866,12 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             }
         }
 
-        return if (fromType !is SemanticType.Declared && toType is SemanticType.Declared) {
-            findCtorConv(toType)
-        } else if (fromType is SemanticType.Declared && toType !is SemanticType.Declared) {
-            findOperatorConv(fromType)
-        } else if (fromType is SemanticType.Declared && toType is SemanticType.Declared) {
-            findCtorConv(toType) + findOperatorConv(fromType)
-        } else emptySet()
+        return when (fromType) {
+            !is SemanticType.Declared if toType is SemanticType.Declared -> findCtorConv(toType)
+            is SemanticType.Declared if toType !is SemanticType.Declared -> findOperatorConv(fromType)
+            is SemanticType.Declared if toType is SemanticType.Declared -> findCtorConv(toType) + findOperatorConv(fromType)
+            else -> emptySet()
+        }
     }
 
 
@@ -1169,16 +1178,16 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         return OpResult.success(buildConversionSeq(fromExpr, seq.first()))
     }
 
-    override fun warn(message: String, node: ASTNode?) {
-        problems[ProblemLevel.WARNING]!! += SemanticProblem(message, ProblemLevel.WARNING, node, getStackTrace(options))
+    override fun warn(message: String, node: ASTNode?, location: SourceLocation?) {
+        problems[ProblemLevel.WARNING]!! += SemanticProblem(message, ProblemLevel.WARNING, node, location, getStackTrace(options))
     }
 
-    override fun error(message: String, node: ASTNode?) {
-        problems[ProblemLevel.ERROR]!! += SemanticProblem(message, ProblemLevel.ERROR, node, getStackTrace(options))
+    override fun error(message: String, node: ASTNode?, location: SourceLocation?) {
+        problems[ProblemLevel.ERROR]!! += SemanticProblem(message, ProblemLevel.ERROR, node, location, getStackTrace(options))
     }
 
-    override fun error(failure: OpResult.Failure, astNode: ASTNode?) {
-        error(failure.message, astNode ?: failure.args.firstOrNull() as? ASTNode)
+    override fun error(failure: OpResult.Failure, astNode: ASTNode?, location: SourceLocation?) {
+        error(failure.message, astNode ?: failure.args.firstOrNull() as? ASTNode, failure.args.firstOrNull() as? SourceLocation)
     }
 
     private fun collectADLForSymbol(
@@ -1190,7 +1199,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
         while (current is DeclSymbol.ClassDecl) {
             val overloads = current.scope.lookupLocal(name, true).getAsOrNull<DeclSymbol.FunctionOverloadSet>()
-            overloads?.let { result.addAll(it.overloads) }
+            overloads?.let { result.addAll(it.overloads.filter { !it.isMethod }) }
 
             current = current.parentSymbol
         }
@@ -1202,10 +1211,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         }
     }
 
-    fun collectADLOverloads(
-        name: String,
-        vararg operands: ExpressionInfo?
-    ): List<DeclSymbol.FunctionDecl> {
+    override fun collectADLOverloads(name: String, vararg operands: ExpressionInfo?): List<DeclSymbol.FunctionDecl> {
         val result = mutableSetOf<DeclSymbol.FunctionDecl>()
 
         for (operand in operands) {

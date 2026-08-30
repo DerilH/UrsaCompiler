@@ -6,41 +6,47 @@ import org.derilh.ast.UnaryExpressionNode
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.ValueCategory
+import org.derilh.core.getOrElse
 import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
+import org.derilh.semantic.analyzer.SemanticAnalyzer
 import org.derilh.semantic.isDeclared
 import org.derilh.semantic.isLValueRef
 import org.derilh.semantic.isPointer
 import org.derilh.semantic.isPrimitive
 import org.derilh.semantic.isRValueRef
+import org.derilh.util.ErrorHelper
 
 class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
     override fun analyze(node: UnaryExpressionNode, ctx: AnalyzeContext): ASTNode {
         node.operand = ctx.findAnalyzer(node.operand).analyze(node.operand, ctx) as ExpressionNode
         val type = node.operand.resolvedType;
         val vc = node.operand.valueCategory;
-        if(type == null || vc == null) {
+        if (type == null || vc == null) {
             ctx.error("Could not resolve type of operand", node.operand)
             return node;
         }
 
         val operandInfo = ExpressionInfo(type, vc, ctx.isNullPointerConstant(node.operand))
 
-        if(type is SemanticType.Function && node.operator == Operator.AMP) {
+        if (type is SemanticType.Function && node.operator == Operator.AMP) {
             node.resolvedType = ctx.types.decay(type)
             node.valueCategory = ValueCategory.PRVALUE
-        }
-        else if(type.isPointer()) {
+        } else if (type.isPointer()) {
             val info = resolvePointerUnaryOpType(node.operand.resolvedType as SemanticType.Pointer, node, ctx);
             node.resolvedType = info?.type;
             node.valueCategory = info?.valueCategory;
             return node;
-        }
-        else {
+        } else {
             var isPrimitive = false;
             val scope = when {
-                type.isPrimitive() || type.isRValueRef() && type.pointee.isPrimitive() ||type.isLValueRef() && type.pointee.isPrimitive() -> {isPrimitive = true; ctx.rootScope};
-                type.isDeclared() -> {ctx.scope}
+                type.isPrimitive() || type.isRValueRef() && type.pointee.isPrimitive() || type.isLValueRef() && type.pointee.isPrimitive() -> {
+                    isPrimitive = true; ctx.rootScope
+                };
+                type.isDeclared() -> {
+                    ctx.scope
+                }
+
                 type.isRValueRef() && type.pointee.isDeclared() -> ctx.scope;
                 type.isLValueRef() && type.pointee.isDeclared() -> ctx.scope;
                 else -> {
@@ -49,28 +55,20 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
                 }
             }
 
-            val additionalParam = if(node.operator == Operator.INCREMENT || node.operator == Operator.DECREMENT) {
-                 ExpressionInfo(ctx.types.int, ValueCategory.PRVALUE, false)
+            val additionalParam = if (node.operator == Operator.INCREMENT || node.operator == Operator.DECREMENT) {
+                ExpressionInfo(ctx.types.int, ValueCategory.PRVALUE, false)
             } else null
             val overloads = ctx.resolveOpOverloads(scope, node.operator, false, operandInfo, additionalParam)
-            if(overloads.isEmpty()) {
-                ctx.error("No matching operator overloads found for '${node.operator}'", node)
-            }
-            else if(overloads.size > 1) {
-                ctx.error("Ambiguous operator overload ${node.operator}", node)
-                //TODO: add ambiguous overloads print
-            } else {
-                val overload = overloads.first();
-                node.functionDecl = overload.decl;
-                node.resolvedType = overload.decl.returnType;
-                node.valueCategory = ctx.getRefValueCategory(overload.decl.returnType)
-                //TODO: check if overload is valid for primitive (maybe not needed check for empty conversion sequence;
-                //TODO: Add replacing of binary expression to overload call if not builtin overload
-                if(!isPrimitive) {
-                    node.operand = ctx.buildConversionSeq(node.operand,overload.sequences.first());
-                }
-            }
+            val result = ErrorHelper.checkViableSet(overloads, "${SemanticAnalyzer.OPERATOR_FUN_PREFIX}${node.operator}", node.location!!).getOrElse { ctx.error(it); return node; }
 
+            node.functionDecl = result.decl;
+            node.resolvedType = result.decl.returnType;
+            node.valueCategory = ctx.getRefValueCategory(result.decl.returnType)
+            //TODO: check if overload is valid for primitive (maybe not needed check for empty conversion sequence;
+            //TODO: Add replacing of binary expression to overload call if not builtin overload
+            if (!isPrimitive) {
+                node.operand = ctx.buildConversionSeq(node.operand, result.sequences.first());
+            }
         }
 
         return node;

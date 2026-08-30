@@ -636,11 +636,11 @@ class IdExpressionNode(override val id: IdentifierNode, override val location: S
 }
 
 class CallExpressionNode(
-    override val callable: ExpressionNode?,
+    override val callee: ExpressionNode?,
     override var arguments: ArgumentsNode, override val location: SourceLocation?
 ) : ExpressionNode(), ICallExpressionNode {
-    var functionDecl: DeclSymbol.FunctionDecl? = null
-    override val children: List<ASTNode> get() = listOfNotNull(callable) + arguments
+    var functionDecl: DeclSymbol? = null
+    override val children: List<ASTNode> get() = listOfNotNull(callee) + arguments
     override fun toString(): String = "CallExpressionNode"
 }
 

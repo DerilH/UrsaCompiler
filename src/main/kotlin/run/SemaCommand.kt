@@ -53,6 +53,10 @@ class SemaCommand : CliktCommand(
                 printer.printException(it)
             }
         }
+
+        if(result.second.problems[ProblemLevel.ERROR]!!.isEmpty() && result.first.problems[ProblemLevel.ERROR]!!.isEmpty()) {
+            printer.printSuccess()
+        }
         System.out.flush()
         if(printAst) result.second.ast.printTree()
     }

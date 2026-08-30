@@ -61,6 +61,7 @@ sealed class DeclSymbol(
         lateinit var type: SemanticType
     }
 
+
     open class FunctionDecl(
         name: String,
         parentSymbol: DeclSymbol?,
@@ -96,7 +97,7 @@ sealed class DeclSymbol(
 
     class ConstructorDecl(
         name: String,
-        parentSymbol: DeclSymbol?,
+        parentSymbol: DeclSymbol,
         qualifiers: FunctionQualifiers,
         isBuiltin: Boolean,
         val isExplicit: Boolean,
@@ -113,7 +114,7 @@ sealed class DeclSymbol(
             return FunctionDecl(name, parentSymbol, qualifiers, isMethod = false, isBuiltin = false, defaultParamCount)
         }
 
-        fun constructorDecl(name: String, parentSymbol: DeclSymbol?, qualifiers: FunctionQualifiers, isExplicit: Boolean, defaultParamCount: Int): ConstructorDecl {
+        fun constructorDecl(name: String, parentSymbol: DeclSymbol, qualifiers: FunctionQualifiers, isExplicit: Boolean, defaultParamCount: Int): ConstructorDecl {
             return ConstructorDecl(name, parentSymbol, qualifiers, isBuiltin = false, isExplicit, defaultParamCount)
         }
 

@@ -8,7 +8,9 @@ import org.derilh.ast.QualifiedIdentifierNode
 import org.derilh.core.Operator
 import org.derilh.core.ValueCategory
 import org.derilh.core.getOrElse
+import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
+import org.derilh.semantic.analyzer.IdContext
 import org.derilh.semantic.isDeclared
 import org.derilh.semantic.isPointer
 
@@ -46,10 +48,18 @@ class MemberAccessExprAnalyzer : NodeAnalyzer<MemberAccessExpressionNode> {
 
                 val symbol = leftType.decl.scope.lookupLocal(id.name, false).getOrElse {ctx.error(it,node); return node;}
                 right.decl = symbol;
-                if(symbol is DeclSymbol.FunctionDecl) {
-                    val bound = ctx.types.getBoundMethod(leftType.decl,symbol.signatureType);
-                    right.resolvedType = bound;
-                    node.resolvedType = bound;
+                if(symbol is DeclSymbol.FunctionOverloadSet) {
+                    if(ctx.idContext != IdContext.CALLEE) {
+                        ctx.error("Reference to non-static member function must be called", node.right)
+                        node.resolvedType = ctx.types.getError();
+                        node.valueCategory = ValueCategory.PRVALUE
+                        return node;
+                    }
+
+                    val boundSet= ctx.types.getBoundMethodSet(ExpressionInfo(node.left.resolvedType!!, node.left.valueCategory!!, false), symbol.name, symbol.overloads.filter { it.isMethod })
+                    node.resolvedType = boundSet;
+                    node.right.resolvedType = boundSet;
+
                     node.valueCategory = ValueCategory.LVALUE;
                     right.valueCategory = ValueCategory.LVALUE
                 } else if(symbol is DeclSymbol.VariableDecl) {

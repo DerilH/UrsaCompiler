@@ -114,7 +114,7 @@ interface IIdExpressionNode : IExpressionNode {
 }
 
 interface ICallExpressionNode : IExpressionNode {
-    val callable: IExpressionNode?
+    val callee: IExpressionNode?
     val arguments: IArgumentsNode
 }
 

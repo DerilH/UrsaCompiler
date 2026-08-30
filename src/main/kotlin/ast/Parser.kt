@@ -291,6 +291,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return DeclarationSequenceNode(type, decls, location).also { parseSeparator() }
     }
 
+    //TODO: Add static functions in class
     private fun parseDeclarator(baseType: TypeNode, defineInScope: Boolean = true): DeclaratorNode {
         val location = currentToken().location
         val (id, finalType) = parseDeclaratorInternal(baseType)
@@ -1152,7 +1153,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
         val defaultParamCount = declType.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
         //TODO: add explicit support
-        val decl = DeclSymbol.constructorDecl(classId.name, sema.scope.ownerSymbol, declType.qualifiers, isExplicit = false, defaultParamCount)
+        val decl = DeclSymbol.constructorDecl(classId.name, sema.scope.ownerSymbol!!, declType.qualifiers, isExplicit = false, defaultParamCount)
         decl.astNode = declaratorNode;
         val overloadSet: DeclSymbol.FunctionOverloadSet? = sema.scope.define(decl).getAsOrElse { sema.error(it); null }
 
@@ -1251,6 +1252,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
                     parseSeparator()
                 }
             }
+            while(consume(Symbol.SEPARATOR,false));
         }
         if (withBraces) {
             consume(Symbol.END)

@@ -2,7 +2,6 @@ package org.derilh.analyzer
 
 import org.derilh.core.OpResult
 import org.derilh.core.AccessSpecifier
-import org.derilh.core.getOrElse
 import org.derilh.core.isSuccess
 import org.derilh.core.orElse
 import org.derilh.util.ErrorHelper
@@ -143,14 +142,21 @@ open class Scope(
 
 class ClassScope(
     parent: Scope?,
-    ownerClass: DeclSymbol.ClassDecl?,
+    ownerClass: DeclSymbol.ClassDecl,
 ) : Scope(parent = parent, ownerSymbol = ownerClass) {
     //TODO: Change default spec for anonymous classes
-    private var currentAccessSpecifier: AccessSpecifier = ownerClass?.getDefaultVisibility() ?: AccessSpecifier.PUBLIC
+    private var currentAccessSpecifier: AccessSpecifier = ownerClass.getDefaultVisibility() ?: AccessSpecifier.PUBLIC
+    private var ctors = DeclSymbol.FunctionOverloadSet(ownerClass.name, ownerClass);
 
     override fun define(symbol: DeclSymbol): OpResult<DeclSymbol> {
-        symbol.accessSpecifier = currentAccessSpecifier;
-        return super.define(symbol)
+        if(symbol is DeclSymbol.ConstructorDecl) {
+            ctors.overloads += symbol;
+            return OpResult.success(symbol);
+        }
+        else {
+            symbol.accessSpecifier = currentAccessSpecifier;
+            return super.define(symbol)
+        }
     }
 
 //    fun lookupMember(name: String): OpResult<DeclSymbol> {
@@ -172,6 +178,8 @@ class ClassScope(
     fun setAccessSpecifier(specifier: AccessSpecifier) {
         currentAccessSpecifier = specifier
     }
+
+    fun getConstructors(): DeclSymbol.FunctionOverloadSet = ctors;
 }
 
 class GlobalScope : Scope(null)

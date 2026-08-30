@@ -17,6 +17,11 @@ class Printer(val source: String, val lexer: Lexer) {
         const val KEYWORD_COLOR = "\u001b[1;34m"
         const val LITERAL_COLOR = "\u001b[1;32m"
         const val RED_COLOR = "\u001b[0;31m"
+        const val BOLD_GREEN_COLOR = "\u001b[1;32m"
+    }
+
+    fun printSuccess() {
+        println("SUCCESS".withColor(BOLD_GREEN_COLOR))
     }
 
     fun printException(e: SyntaxProblem) {
@@ -56,10 +61,8 @@ class Printer(val source: String, val lexer: Lexer) {
     }
 
     fun printException(e: SemanticProblem) {
-        if (e.node != null && e.node?.location != null) {
-
-
-            val loc = e.node!!.location!!;
+        val loc = e.node?.location ?: e.location
+        if (loc != null) {
             var line = lines[loc.line - 1]
             val builder = StringBuilder()
             var currentPos = 0
@@ -88,7 +91,7 @@ class Printer(val source: String, val lexer: Lexer) {
             println(outStr)
         }
         else {
-            println(e.msg)
+            println("${e.level}: ${e.msg}")
         }
 
         if(e.trace != null) {
@@ -114,11 +117,10 @@ class Printer(val source: String, val lexer: Lexer) {
         return "$color$this$RESET"
     }
 
-    private fun String.withLevelColor(problem: ProblemLevel): String  {
+    private fun String.withLevelColor(problem: org.derilh.exceptions.ProblemLevel): String  {
         val color = when(problem) {
-            org.derilh.exceptions.ProblemLevel.WARNING -> "\u001b[1;35m"
-            org.derilh.exceptions.ProblemLevel.ERROR -> "\u001b[1;31m"
-            else -> RESET
+            ProblemLevel.WARNING -> "\u001b[1;35m"
+            ProblemLevel.ERROR -> "\u001b[1;31m"
         }
         return withColor(color)
     }

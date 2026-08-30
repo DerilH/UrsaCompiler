@@ -1,8 +1,10 @@
 package org.derilh.semantic
 
 import org.derilh.analyzer.DeclSymbol
+import org.derilh.ast.ExpressionNode
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.PrimitiveTypeKind
+import kotlin.math.exp
 
 class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind) {
     private object PrivateToken
@@ -88,12 +90,22 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
     fun getFunction(returnType: SemanticType, params: List<SemanticType>, qualifiers: FunctionQualifiers): SemanticType.Function {
         return intern(SemanticType.Function(returnType, params.map { dropCV(decay(it)) }, qualifiers, key))
     }
-    fun getBoundMethod(classDecl: DeclSymbol.ClassDecl, function: SemanticType.Function, isConst: Boolean = false, isVolatile: Boolean = false): SemanticType.BoundMethod {
-        return intern(SemanticType.BoundMethod(function, classDecl, key))
+    fun getBoundMethod(thisInfo: ExpressionInfo,classDecl: DeclSymbol.ClassDecl, function: SemanticType.Function, isConst: Boolean = false, isVolatile: Boolean = false): SemanticType.BoundMethod {
+        return intern(SemanticType.BoundMethod(thisInfo, function, classDecl, key))
     }
     fun getAuto(isConst: Boolean, isVolatile: Boolean): SemanticType.Auto {
         return intern(SemanticType.Auto(isConst, isVolatile, key))
     }
+
+    fun getOverloadSet(name: String, overloads: List<DeclSymbol.FunctionDecl>, isUnqualified: Boolean): SemanticType.OverloadSet {
+        return SemanticType.OverloadSet(name, overloads, isUnqualified, key)
+    }
+
+    fun getBoundMethodSet(thisInfo: ExpressionInfo, name: String, overloads: List<DeclSymbol.FunctionDecl>): SemanticType.BoundMethodSet {
+        return SemanticType.BoundMethodSet(thisInfo, name, overloads, key)
+    }
+
+
     fun getError(): SemanticType = error
     fun getErrorFunction(): SemanticType.Function = errorFunction;
 
