@@ -4,11 +4,13 @@ import org.derilh.analyzer.DeclSymbol
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.RefQualifier
+import org.derilh.core.TypeInfo
 import org.derilh.semantic.SemanticType.Declared
 import org.derilh.semantic.SemanticType.Pointer
 import org.derilh.semantic.SemanticType.Primitive
 import org.derilh.semantic.SemanticType.RValueReference
 import org.derilh.semantic.SemanticType.Reference
+import org.derilh.util.lazyUntilNonNull
 import java.util.Objects
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
@@ -20,6 +22,8 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
     open fun removeRef(key: TypeContext.Key) = this
     open fun removePointer(key: TypeContext.Key) = this
     open fun decay(key: TypeContext.Key) = this
+
+    val info: TypeInfo? by lazyUntilNonNull { key.calculateSizeInfo(this) }
 
     override fun toString(): String {
         return toDisplayString()
@@ -141,7 +145,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
     }
 
     class BoundMethod internal constructor(val thisInfo: ExpressionInfo, val function: Function, val owner: DeclSymbol.ClassDecl, key: TypeContext.Key) : SemanticType(function.qualifiers.isConst, function.qualifiers.isVolatile, key) {
-        override val isComplete: Boolean = true;
+        override val isComplete: Boolean = false;
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
         override fun decay(key: TypeContext.Key): SemanticType = this
@@ -151,7 +155,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
     }
 
     class Function internal constructor(val returnType: SemanticType, val params: List<SemanticType>, val qualifiers: FunctionQualifiers, key: TypeContext.Key) : SemanticType(qualifiers.isConst, qualifiers.isVolatile, key) {
-        override val isComplete: Boolean = true
+        override val isComplete: Boolean = false
 
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
@@ -288,19 +292,22 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             Objects.hash(isConst, isVolatile)
     }
 
-    class Error constructor(key: TypeContext.Key, override val isComplete: Boolean = false) : SemanticType(key = key) {
+    class Error constructor(key: TypeContext.Key) : SemanticType(key = key) {
+        override val isComplete: Boolean = false
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
         override fun toDisplayString(): String = "error"
     }
 
-    class OverloadSet constructor(val name: String, val overloads: List<DeclSymbol.FunctionDecl>, val isUnqualified: Boolean, key: TypeContext.Key, override val isComplete: Boolean = false) : SemanticType(key = key) {
+    class OverloadSet constructor(val name: String, val overloads: List<DeclSymbol.FunctionDecl>, val isUnqualified: Boolean, key: TypeContext.Key) : SemanticType(key = key) {
+        override val isComplete: Boolean = false
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
         override fun toDisplayString(): String = "overload_set"
     }
 
-    class BoundMethodSet constructor(val thisInfo: ExpressionInfo, val name: String, val overloads: List<DeclSymbol.FunctionDecl>, key: TypeContext.Key, override val isComplete: Boolean = false) : SemanticType(key = key) {
+    class BoundMethodSet constructor(val thisInfo: ExpressionInfo, val name: String, val overloads: List<DeclSymbol.FunctionDecl>, key: TypeContext.Key) : SemanticType(key = key) {
+        override val isComplete: Boolean = false
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
         override fun toDisplayString(): String = "bound_method_set"

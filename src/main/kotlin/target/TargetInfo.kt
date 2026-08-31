@@ -40,11 +40,11 @@ abstract class TargetInfo(val types: TargetTypesInfo) {
         }
     }
 
-    fun getBitWidth(kind: PrimitiveTypeKind): Int {
+    fun getBitWidth(kind: PrimitiveTypeKind): Long {
         return getTypeInfo(kind).widthBits
     }
 
-    fun getBitAlign(kind: PrimitiveTypeKind): Int {
+    fun getBitAlign(kind: PrimitiveTypeKind): Long {
         return getTypeInfo(kind).alignBits
     }
 
@@ -128,12 +128,12 @@ data class TargetTypesInfo(
     val maxDouble: BigDecimal,
     val maxLongDouble: BigDecimal
 ) {
-    val maxInt: BigInteger get() = BigInteger.TWO.pow(int.widthBits - 1) - BigInteger.ONE
-    val maxUInt: BigInteger get() = BigInteger.TWO.pow(int.widthBits) - BigInteger.ONE
+    val maxInt: BigInteger get() = BigInteger.TWO.pow(int.widthBits.toInt() - 1) - BigInteger.ONE
+    val maxUInt: BigInteger get() = BigInteger.TWO.pow(int.widthBits.toInt()) - BigInteger.ONE
 
-    val maxLong: BigInteger get() = BigInteger.TWO.pow(long.widthBits - 1) - BigInteger.ONE
-    val maxULong: BigInteger get() = BigInteger.TWO.pow(long.widthBits) - BigInteger.ONE
+    val maxLong: BigInteger get() = BigInteger.TWO.pow(long.widthBits.toInt() - 1) - BigInteger.ONE
+    val maxULong: BigInteger get() = BigInteger.TWO.pow(long.widthBits.toInt()) - BigInteger.ONE
 
-    val maxLongLong: BigInteger get() = BigInteger.TWO.pow(longLong.widthBits - 1) - BigInteger.ONE
-    val maxULongLong: BigInteger get() = BigInteger.TWO.pow(longLong.widthBits) - BigInteger.ONE
+    val maxLongLong: BigInteger get() = BigInteger.TWO.pow(longLong.widthBits.toInt() - 1) - BigInteger.ONE
+    val maxULongLong: BigInteger get() = BigInteger.TWO.pow(longLong.widthBits.toInt()) - BigInteger.ONE
 }

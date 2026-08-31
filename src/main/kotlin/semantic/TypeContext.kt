@@ -1,12 +1,15 @@
 package org.derilh.semantic
 
 import org.derilh.analyzer.DeclSymbol
-import org.derilh.ast.ExpressionNode
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.PrimitiveTypeKind
-import kotlin.math.exp
+import org.derilh.core.TypeInfo
+import org.derilh.target.TargetInfo
+import org.derilh.util.Util
+import kotlin.concurrent.fixedRateTimer
+import kotlin.math.max
 
-class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind) {
+class TypeContext(val target: TargetInfo) {
     private object PrivateToken
 
     class Key private constructor(
@@ -17,6 +20,13 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
             internal fun create(context: TypeContext) = Key(context, PrivateToken)
         }
         fun getOrCreate(elementType: SemanticType): SemanticType = context.intern(elementType)
+
+        /**
+         * @return Type size info or null if the type is incomplete
+         */
+        fun calculateSizeInfo(type: SemanticType): TypeInfo? {
+            return context.calculateSizeInfo(type)
+        }
     }
 
     private val key: Key = Key.create(this)
@@ -45,8 +55,8 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
     val char32_t = getPrimitive(PrimitiveTypeKind.CHAR32_T)
     val wchar_t = getPrimitive(PrimitiveTypeKind.WCHAR_T)
 
-    val size_t = getPrimitive(sizeT)
-    val ptrDiff_t = getPrimitive(ptrDiffT)
+    val size_t = getPrimitive(target.types.sizeType)
+    val ptrDiff_t = getPrimitive(target.types.ptrDiffType)
 
     val auto = intern(SemanticType.Auto(key = key))
     val voidPtr = getPointer(void)
@@ -114,4 +124,55 @@ class TypeContext(val sizeT: PrimitiveTypeKind, val ptrDiffT: PrimitiveTypeKind)
     fun removeRef(type: SemanticType): SemanticType = type.removeRef(key)
 
     fun decay(type: SemanticType): SemanticType = type.removeRef(key).decay(key)
+
+
+    /**
+     * @return Type size info or null if the type is incomplete
+     */
+    fun calculateSizeInfo(type: SemanticType): TypeInfo? {
+        if(!type.isComplete) return null;
+        return when(type) {
+            is SemanticType.Array -> {
+                if(type.size == null) null;
+                else {
+                    val elSize = calculateSizeInfo(type.elementType) ?: return null;
+                    TypeInfo(elSize.widthBits * type.size, elSize.alignBits)
+                }
+            }
+            is SemanticType.Declared -> {
+                type.decl.layout?.typeInfo;
+            }
+            is SemanticType.Reference, is SemanticType.RValueReference, is SemanticType.Pointer, is SemanticType.MemberPointer -> target.types.pointer;
+            is SemanticType.Primitive -> target.getTypeInfo(type.kind)
+            else -> null
+        }
+    };
+
+    /**
+     * Compile class layout for a given class declaration.
+     * @return [StructLayout] or null if class or its any of it fields is incomplete
+     */
+    fun compileClassLayout(classDecl: DeclSymbol.ClassDecl): StructLayout? {
+        if(!classDecl.hasDefinition) return null;
+        val ordinary = classDecl.scope.ordinarySymbols;
+        val fields = mutableListOf<FieldLayout>()
+        val methods = mutableListOf<MethodLayout>()
+        var offset = 0L
+        //TODO: Add support for alignas
+        var maxAlign = 8L;
+        for(symbol in ordinary) {
+            if(symbol is DeclSymbol.VariableDecl) {
+                val typeInfo = calculateSizeInfo(symbol.type) ?: return null;
+                maxAlign = max(maxAlign, typeInfo.alignBits)
+                offset = Util.alignUp(offset, typeInfo.alignBits)
+                fields += FieldLayout(symbol.name, symbol.type, typeInfo, offset);
+                offset += typeInfo.widthBits;
+            }
+        }
+        if(offset == 0L) {
+            offset = 8L;
+        }
+        val structSize = Util.alignUp(offset, maxAlign)
+        return StructLayout(fields, methods, TypeInfo(structSize, maxAlign),null);
+    }
 }

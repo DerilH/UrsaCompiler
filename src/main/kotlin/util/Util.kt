@@ -1,5 +1,6 @@
 package org.derilh.util
 import kotlin.math.pow
+import kotlin.reflect.KProperty
 
 class Util {
     companion object {
@@ -29,11 +30,31 @@ class Util {
             }
         }
 
-        fun maxValueForByTypeWidth(bitWidth: Int, signed: Boolean): ULong {
+        fun maxValueForByTypeWidth(bitWidth: Long, signed: Boolean): ULong {
+
             require(bitWidth in 1..64) { "Bit width must be between 1 and 64." }
+            val bitWidth = bitWidth.toInt()
 
             val targetBits = if (signed) bitWidth - 1 else bitWidth
-            return if (targetBits == 64) ULong.MAX_VALUE else (1UL shl targetBits) - 1UL
+            return if (targetBits == 64) ULong.MAX_VALUE else (1UL shl  targetBits) - 1UL
+        }
+
+        fun alignUp(offset: Long, align: Long): Long {
+            val remainder = offset % align
+            return if (remainder == 0L) offset else offset + (align - remainder)
         }
     }
 }
+
+class ResettableLazyUntilNonNull<T : Any>(private val initializer: () -> T?) {
+    private var value: T? = null
+
+    operator fun getValue(thisRef: Any?, property: KProperty<*>): T? {
+        if (value == null) {
+            value = initializer()
+        }
+        return value
+    }
+}
+
+fun <T : Any> lazyUntilNonNull(initializer: () -> T?) = ResettableLazyUntilNonNull(initializer)

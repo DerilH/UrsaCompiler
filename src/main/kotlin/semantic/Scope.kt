@@ -17,10 +17,20 @@ open class Scope(
     val parent: Scope?,
     val ownerSymbol: DeclSymbol? = null
 ) {
+    /**
+     * Ordinary symbols are used to store variables, functions etc.
+     */
     protected val ordinaryMap = mutableMapOf<String, DeclSymbol>()
+    val ordinarySymbols: Collection<DeclSymbol> get() = ordinaryMap.values
+
+    /**
+     * Tags are used to store class and namespace declarations.
+     */
     protected val tagMap = mutableMapOf<String, DeclSymbol>()
+    val tagSymbols: Collection<DeclSymbol> get() = tagMap.values
 
     private val usingDirectives = mutableListOf<Scope>()
+
 
     /**
      * Defines a symbol in this scope.
@@ -50,11 +60,10 @@ open class Scope(
 
             is DeclSymbol.FunctionDecl -> {
                 var existingOrdinary = ordinaryMap[name]
-                if(existingOrdinary == null) {
+                if (existingOrdinary == null) {
                     existingOrdinary = DeclSymbol.FunctionOverloadSet(name, symbol.parentSymbol)
                     ordinaryMap[name] = existingOrdinary;
-                }
-                else if(existingOrdinary !is DeclSymbol.FunctionOverloadSet) {
+                } else if (existingOrdinary !is DeclSymbol.FunctionOverloadSet) {
                     return ErrorHelper.alreadyDefined(symbol, existingOrdinary)
                 }
 
@@ -149,11 +158,10 @@ class ClassScope(
     private var ctors = DeclSymbol.FunctionOverloadSet(ownerClass.name, ownerClass);
 
     override fun define(symbol: DeclSymbol): OpResult<DeclSymbol> {
-        if(symbol is DeclSymbol.ConstructorDecl) {
+        if (symbol is DeclSymbol.ConstructorDecl) {
             ctors.overloads += symbol;
             return OpResult.success(symbol);
-        }
-        else {
+        } else {
             symbol.accessSpecifier = currentAccessSpecifier;
             return super.define(symbol)
         }

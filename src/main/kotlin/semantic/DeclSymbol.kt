@@ -1,19 +1,12 @@
 package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
-import org.derilh.ast.ClassDeclarationNode
-import org.derilh.ast.ClassDefinitionNode
-import org.derilh.ast.ConstructorDeclarationNode
-import org.derilh.ast.ConstructorDefinitionNode
-import org.derilh.ast.DeclaratorNode
 import org.derilh.ast.EmptyStatementNode
-import org.derilh.ast.FunctionDeclaratorNode
-import org.derilh.ast.FunctionDefinitionNode
-import org.derilh.ast.NamespaceDeclarationNode
 import org.derilh.core.ClassType
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.AccessSpecifier
 import org.derilh.semantic.SemanticType
+import org.derilh.semantic.StructLayout
 
 sealed class DeclSymbol(
     val name: String,
@@ -47,6 +40,7 @@ sealed class DeclSymbol(
         lateinit var scope: ClassScope
         var definitionNode: ASTNode? = null;
         var hasDefinition: Boolean = false;
+        var layout: StructLayout? = null;
         fun getDefaultVisibility(): AccessSpecifier = when (type) {
             ClassType.STRUCT, ClassType.UNION -> AccessSpecifier.PUBLIC
             ClassType.CLASS -> AccessSpecifier.PRIVATE

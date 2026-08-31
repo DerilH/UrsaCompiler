@@ -37,6 +37,7 @@ class ClassDefAnalyzer : NodeAnalyzer<ClassDefinitionNode> {
         ctx.withScope(node.classDecl.scope) {
             ctx.analyze(node.body, ctx.scope)
         }
+        node.classDecl.layout = ctx.types.compileClassLayout(node.classDecl);
         return node;
     }
 }

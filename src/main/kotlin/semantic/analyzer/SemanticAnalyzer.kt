@@ -267,7 +267,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             "x86_64Linux" -> X86_64LinuxTargetInfo;
             else -> throw IllegalArgumentException("Unknown target: ${options.target}")
         }
-        types = TypeContext(target.types.sizeType, target.types.ptrDiffType)
+        types = TypeContext(target)
     }
 
     fun analyze(ast: RootNode): AnalyzeResult {
