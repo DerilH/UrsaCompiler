@@ -15,7 +15,7 @@ import java.util.Objects
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
-sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean = false, val key: TypeContext.Key) {
+sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean = false, val key: TypeContext.Key?) {
     abstract val isComplete: Boolean
     abstract fun dropCV(key: TypeContext.Key): SemanticType;
     abstract fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType;
@@ -23,7 +23,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
     open fun removePointer(key: TypeContext.Key) = this
     open fun decay(key: TypeContext.Key) = this
 
-    val info: TypeInfo? by lazyUntilNonNull { key.calculateSizeInfo(this) }
+    val info: TypeInfo? by lazyUntilNonNull { key!!.calculateSizeInfo(this) }
 
     override fun toString(): String {
         return toDisplayString()
@@ -292,7 +292,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             Objects.hash(isConst, isVolatile)
     }
 
-    class Error constructor(key: TypeContext.Key) : SemanticType(key = key) {
+    object Error : SemanticType(key = null) {
         override val isComplete: Boolean = false
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
@@ -385,6 +385,15 @@ fun SemanticType.isPointer(): Boolean {
         returns(true) implies (this@isPointer is Pointer)
     }
     return this is Pointer
+}
+
+
+@OptIn(ExperimentalContracts::class)
+fun SemanticType.isArray(): Boolean {
+    contract {
+        returns(true) implies (this@isArray is SemanticType.Array)
+    }
+    return this is SemanticType.Array
 }
 
 @OptIn(ExperimentalContracts::class)

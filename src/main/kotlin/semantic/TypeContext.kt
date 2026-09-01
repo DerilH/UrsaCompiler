@@ -61,8 +61,8 @@ class TypeContext(val target: TargetInfo) {
     val auto = intern(SemanticType.Auto(key = key))
     val voidPtr = getPointer(void)
 
-    private val error = intern(SemanticType.Error(key = key))
-    private val errorFunction = intern(getFunction(SemanticType.Error(key = key), emptyList(), FunctionQualifiers()))
+    private val error = intern(SemanticType.Error)
+    private val errorFunction = intern(getFunction(SemanticType.Error, emptyList(), FunctionQualifiers()))
 
     private fun <T : SemanticType> intern(type: T): T {
         @Suppress("UNCHECKED_CAST")
@@ -123,7 +123,7 @@ class TypeContext(val target: TargetInfo) {
     fun addCV(type: SemanticType, isConst: Boolean, isVolatile: Boolean): SemanticType = type.addCV(isConst, isVolatile, key)
     fun removeRef(type: SemanticType): SemanticType = type.removeRef(key)
 
-    fun decay(type: SemanticType): SemanticType = type.removeRef(key).decay(key)
+    fun decay(type: SemanticType): SemanticType = type.decay(key)
 
 
     /**

@@ -2,6 +2,7 @@ package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
 import org.derilh.ast.BinaryExpressionNode
+import org.derilh.ast.CallExpressionNode
 import org.derilh.ast.ExpressionNode
 import org.derilh.core.OpResult
 import org.derilh.core.Operator
@@ -10,6 +11,7 @@ import org.derilh.core.ValueCategory
 import org.derilh.core.getOrElse
 import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
+import org.derilh.semantic.analyzer.CallExprAnalyzer
 import org.derilh.semantic.isDeclared
 import org.derilh.semantic.isPointer
 import org.derilh.semantic.isPrimitive
@@ -60,9 +62,10 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
                     OpResult.success(node)
                 }
             }
+
             else -> OpResult.failure("Cannot apply operator '${node.operator}' to types '${leftType}' and '${rightType}'", node)
         }
-        return result.getOrElse { ctx.error(it,); return node; }
+        return result.getOrElse { ctx.error(it); return node; }
     }
 
 
@@ -150,21 +153,24 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
                 resolvedType = ctx.types.getPrimitive(ctx.target.types.ptrDiffType);
             }
 
-            Operator.EQUAL, Operator.NOT_EQ, Operator.LESS, Operator.LESS_EQUAL, Operator.GREATER, Operator.GREATER_EQUAL  -> {
+            Operator.EQUAL, Operator.NOT_EQ, Operator.LESS, Operator.LESS_EQUAL, Operator.GREATER, Operator.GREATER_EQUAL -> {
                 expectedLeftType = rightType
                 resolvedType = ctx.types.bool;
             }
+
             Operator.AND, Operator.OR -> {
                 expectedLeftType = ctx.types.bool;
                 expectedRightType = ctx.types.bool;
                 resolvedType = ctx.types.bool;
             }
+
             Operator.ASSIGN -> {
                 if (node.left.valueCategory?.isRValue == true) return OpResult.failure("Cannot assign to rvalue", node)
                 expectedRightType = leftType;
                 resolvedType = ctx.types.getReference(leftType);
                 resolvedVC = ValueCategory.LVALUE;
             }
+
             else -> return OpResult.failure("Cannot apply operator '${node.operator}' to types '${leftType}' and '${rightType}'", node)
         }
         node.left = ctx.buildConversion(node.left, expectedLeftType, resolvedVC).getOrElse { return it; };
@@ -236,49 +242,65 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
         }
     }
 
-    fun performUAC(leftType: SemanticType.Primitive, rightType: SemanticType.Primitive, node: BinaryExpressionNode, ctx: AnalyzeContext): OpResult<ExpressionNode> {
-        val leftKind = leftType.kind;
-        val rightKind = rightType.kind;
-        var resolvedType: SemanticType;
+    fun performUAC(
+        rawLeftType: SemanticType.Primitive,
+        rawRightType: SemanticType.Primitive,
+        node: BinaryExpressionNode,
+        ctx: AnalyzeContext
+    ): OpResult<ExpressionNode> {
+        val leftTypeNoCV = ctx.types.dropCV(rawLeftType) as SemanticType.Primitive
+        val rightTypeNoCV = ctx.types.dropCV(rawRightType) as SemanticType.Primitive
 
-        if (leftKind != rightKind) {
-            resolvedType = if (leftKind.isFloat || rightKind.isFloat) {
-                val isBothFloat = leftKind.isFloat && rightKind.isFloat;
-                val isRanksEqual = leftKind.floatRank == rightKind.floatRank;
+        val leftKind = leftTypeNoCV.kind
+        val rightKind = rightTypeNoCV.kind
 
-                if (leftKind.isInt && rightKind.isFloat || (isBothFloat && (rightKind.floatRank > leftKind.floatRank || (!isRanksEqual && rightKind.floatSubRank > leftKind.floatRank)))) {
-                    rightType
-                } else if (leftType.kind.isFloat && rightType.kind.isInt || (isBothFloat && leftKind.floatRank > rightKind.floatRank || (!isRanksEqual && leftKind.floatSubRank > rightKind.floatRank))) {
-                    leftType
-                } else return ErrorHelper.cannotConvert(leftType, rightType, node)
-            } else if (leftKind.isInt && rightKind.isInt) {
-                val leftType = ctx.types.getPrimitive(ctx.target.promoteIntegralType(leftKind))
-                val rightType = ctx.types.getPrimitive(ctx.target.promoteIntegralType(rightKind))
+        val resolvedType = if (leftKind.isFloat || rightKind.isFloat) {
+            val isBothFloat = leftKind.isFloat && rightKind.isFloat
+            val isRanksEqual = leftKind.floatRank == rightKind.floatRank
 
-                if (leftKind.isUnsigned == rightKind.isUnsigned) {
-                    if (leftKind.intRank > rightKind.intRank) {
-                        leftType
-                    } else {
-                        rightType
-                    }
+            if ((leftKind.isInt && rightKind.isFloat) || (isBothFloat && (rightKind.floatRank > leftKind.floatRank || (!isRanksEqual && rightKind.floatSubRank > leftKind.floatRank)))) {
+                rightTypeNoCV
+            } else if ((leftKind.isFloat && rightKind.isInt) || (isBothFloat && (leftKind.floatRank > rightKind.floatRank || (!isRanksEqual && leftKind.floatSubRank > rightKind.floatRank)))) {
+                leftTypeNoCV
+            } else {
+                return ErrorHelper.cannotConvert(leftTypeNoCV, rightTypeNoCV, node)
+            }
+        } else if (leftKind.isInt && rightKind.isInt) {
+            val leftPromotedType = ctx.types.getPrimitive(ctx.target.promoteIntegralType(leftKind))
+            val rightPromotedType = ctx.types.getPrimitive(ctx.target.promoteIntegralType(rightKind))
+
+            val leftPromotedKind = leftPromotedType.kind
+            val rightPromotedKind = rightPromotedType.kind
+
+            if (leftPromotedKind == rightPromotedKind) {
+                leftPromotedType
+            } else if (leftPromotedKind.isUnsigned == rightPromotedKind.isUnsigned) {
+                if (leftPromotedKind.intRank > rightPromotedKind.intRank) {
+                    leftPromotedType
                 } else {
-                    val unsignedType = if (leftKind.isUnsigned) leftType else rightType;
-                    val signedType = if (leftKind.isUnsigned) rightType else leftType;
-
-                    if (unsignedType.kind.intRank > signedType.kind.intRank) {
-                        unsignedType
-                    } else if (ctx.target.canFitInType(unsignedType.kind, signedType.kind)) {
-                        signedType
-                    } else {
-                        ctx.types.getPrimitive(signedType.kind.toUnsigned())
-                    }
+                    rightPromotedType
                 }
-            } else return ErrorHelper.cannotConvert(leftType, rightType, node)
-        } else resolvedType = leftType;
-        node.left = ctx.buildConversion(node.left, resolvedType, ValueCategory.PRVALUE).getOrElse { return it; };
-        node.right = ctx.buildConversion(node.right, resolvedType, ValueCategory.PRVALUE).getOrElse { return it; };
-        node.resolvedType = resolvedType;
-        node.valueCategory = ValueCategory.PRVALUE;
-        return OpResult.success(node);
+            } else {
+                val unsignedType = if (leftPromotedKind.isUnsigned) leftPromotedType else rightPromotedType
+                val signedType = if (leftPromotedKind.isUnsigned) rightPromotedType else leftPromotedType
+
+                if (unsignedType.kind.intRank >= signedType.kind.intRank) {
+                    unsignedType
+                } else if (ctx.target.canFitInType(unsignedType.kind, signedType.kind)) {
+                    signedType
+                } else {
+                    ctx.types.getPrimitive(signedType.kind.toUnsigned())
+                }
+            }
+        } else {
+            return ErrorHelper.cannotConvert(leftTypeNoCV, rightTypeNoCV, node)
+        }
+
+        node.left = ctx.buildConversion(node.left, resolvedType, ValueCategory.PRVALUE).getOrElse { return it }
+        node.right = ctx.buildConversion(node.right, resolvedType, ValueCategory.PRVALUE).getOrElse { return it }
+        node.resolvedType = resolvedType
+        node.valueCategory = ValueCategory.PRVALUE
+
+        return OpResult.success(node)
     }
 }

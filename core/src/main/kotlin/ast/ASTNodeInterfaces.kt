@@ -62,7 +62,7 @@ interface IArrayTypeNode : ITypeNode {
 }
 
 interface IExpressionNode : IASTNode {
-    var valueCategory: org.derilh.core.ValueCategory?
+    var valueCategory: org.derilh.core.ValueCategory
 }
 
 interface ILiteralNode<T> : IExpressionNode {
@@ -207,6 +207,20 @@ interface IDeclarationSequenceNode : IDeclarationNode {
     val typeSpecifier: ITypeNode
     val declarations: List<IDeclaratorNode>
 }
+
+interface IAsmStatementNode : IStatementNode {
+    val asmExr: IExpressionNode
+    val inList: List<IAsmOperandNode>
+    val outList: List<IAsmOperandNode>
+    val clobberList: List<IExpressionNode>
+}
+
+interface IAsmOperandNode : IASTNode {
+    val constraint: IExpressionNode
+    val expr: IExpressionNode
+    val isInput: Boolean
+}
+
 
 interface IReturnStatementNode : IStatementNode {
     val expression: IExpressionNode?

@@ -30,6 +30,28 @@ class Util {
             }
         }
 
+
+        fun codePointsToUtf16Unescaped(codePoints: IntArray): String {
+            return buildString {
+                for (cp in codePoints) {
+                    if (Character.isValidCodePoint(cp)) {
+                        if (cp == 0) continue
+
+                        if (Character.isISOControl(cp)) {
+                            when (cp) {
+                                '\n'.code, '\t'.code, '\r'.code -> appendCodePoint(cp)
+                                else -> append(String.format("\\u%04X", cp))
+                            }
+                        } else {
+                            appendCodePoint(cp)
+                        }
+                    } else {
+                        append('?')
+                    }
+                }
+            }
+        }
+
         fun maxValueForByTypeWidth(bitWidth: Long, signed: Boolean): ULong {
 
             require(bitWidth in 1..64) { "Bit width must be between 1 and 64." }

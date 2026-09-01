@@ -79,3 +79,6 @@ inline fun <reified T> OpResult<T>.ifFailure(onFailure: (OpResult.Failure) -> Un
     is Failure -> onFailure(this)
     else -> {}
 }
+
+val <T> T.asSuccess: OpResult.Success<T>
+    get() = OpResult.Success(this)

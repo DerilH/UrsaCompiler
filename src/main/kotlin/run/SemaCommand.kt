@@ -12,6 +12,7 @@ import org.derilh.ast.Parser
 import org.derilh.core.Options
 import org.derilh.exceptions.ProblemLevel
 import org.derilh.exceptions.SemanticProblem
+import org.derilh.ir.LLVMIRBuilder
 import org.derilh.lexer.Lexer
 import org.derilh.semantic.AnalyzeResult
 import org.derilh.target.X86_64LinuxTargetInfo
@@ -56,8 +57,12 @@ class SemaCommand : CliktCommand(
 
         if(result.second.problems[ProblemLevel.ERROR]!!.isEmpty() && result.first.problems[ProblemLevel.ERROR]!!.isEmpty()) {
             printer.printSuccess()
+
+
+            LLVMIRBuilder(options).generate(result.second.ast);
         }
         System.out.flush()
+
         if(printAst) result.second.ast.printTree()
     }
 }

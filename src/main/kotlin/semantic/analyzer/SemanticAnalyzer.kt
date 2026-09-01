@@ -3,6 +3,9 @@ package org.derilh.semantic.analyzer
 import org.derilh.analyzer.AbstractDeclaratorAnalyzer
 import org.derilh.analyzer.AccessSpecifierAnalyzer
 import org.derilh.analyzer.AnalyzeContext
+import org.derilh.analyzer.ArrayAccessAnalyzer
+import org.derilh.analyzer.AsmOperandAnalyzer
+import org.derilh.analyzer.AsmStmtAnalyzer
 import org.derilh.analyzer.BinaryExprAnalyzer
 import org.derilh.analyzer.BoolLiteralAnalyzer
 import org.derilh.analyzer.CharLiteralAnalyzer
@@ -33,7 +36,10 @@ import org.derilh.ast.ASTNode
 import org.derilh.ast.AbstractDeclaratorNode
 import org.derilh.ast.AccessSpecifierNode
 import org.derilh.ast.ArgumentsNode
+import org.derilh.ast.ArrayAccessNode
 import org.derilh.ast.ArrayTypeNode
+import org.derilh.ast.AsmOperandNode
+import org.derilh.ast.AsmStatementNode
 import org.derilh.ast.AutoTypeNode
 import org.derilh.ast.BinaryExpressionNode
 import org.derilh.ast.BooleanLiteralNode
@@ -105,6 +111,7 @@ import org.derilh.util.ErrorHelper.Companion.getStackTrace
 import java.math.BigInteger
 import kotlin.collections.mapNotNullTo
 import kotlin.collections.plusAssign
+import kotlin.reflect.KClass
 
 class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     override var target: TargetInfo;
@@ -123,7 +130,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         }
     }
 
-    private val analyzers = hashMapOf(
+    private val analyzers = hashMapOf<KClass<out ASTNode>, NodeAnalyzer<*>>(
         NullptrLiteralNode::class to NullptrLiteralAnalyzer(),
         FloatLiteralNode::class to FloatLiteralAnalyzer(),
         IntLiteralNode::class to IntLiteralAnalyzer(),
@@ -161,6 +168,9 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         MemberAccessExpressionNode::class to MemberAccessExprAnalyzer(),
         CallExpressionNode::class to CallExprAnalyzer(),
         WhileStatementNode::class to WhileStmtAnalyzer(),
+        AsmStatementNode::class to AsmStmtAnalyzer(),
+        AsmOperandNode::class to AsmOperandAnalyzer(),
+        ArrayAccessNode::class to ArrayAccessAnalyzer(),
 
         RecoveryExpressionNode::class to RecoveryAnalyzer(),
         RecoveryStatementNode::class to RecoveryAnalyzer()
@@ -174,7 +184,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
             fun add(name: String, returnType: SemanticType, vararg params: SemanticType) {
                 val t = types.getFunction(returnType, params.toList(), FunctionQualifiers())
-                scope.define(DeclSymbol.builtinOpFunction("$OPERATOR_FUN_PREFIX$name", t))
+                 scope.define(DeclSymbol.builtinOpFunction("$OPERATOR_FUN_PREFIX$name", t))
             }
 
             fun add(op: Operator, returnType: SemanticType, vararg params: SemanticType) {
@@ -273,6 +283,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     fun analyze(ast: RootNode): AnalyzeResult {
 
         enterRootScope(ast.scope)
+        addBuiltinOverloads(ast.scope, types)
         for (child in ast.declarations) {
             findAnalyzer(child).analyze(child, this)
         }
@@ -638,7 +649,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
             if (freeCandidates.isNotEmpty()) {
                 val leftRef = leftOperand.copy(type = types.getReference(nonRefLeft))
-                matches += findBestMatch(freeCandidates.toList(), listOf(leftRef))
+                matches += findBestMatch(freeCandidates.toList(), listOfNotNull(leftRef, rightOperand))
             }
         }
         return matches.distinctBy { System.identityHashCode(it.decl) }.toSet();

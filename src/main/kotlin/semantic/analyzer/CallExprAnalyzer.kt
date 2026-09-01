@@ -91,9 +91,11 @@ class CallExprAnalyzer : NodeAnalyzer<CallExpressionNode> {
                     if (result.decl is DeclSymbol.ConstructorDecl) {
                         node.resolvedType = ctx.types.getDeclared(result.decl.parentSymbol as DeclSymbol.ClassDecl)
                         node.valueCategory = ValueCategory.PRVALUE
+                        node.functionDecl = result.decl;
                     } else {
                         node.resolvedType = result.decl.returnType;
                         node.valueCategory = ctx.getRefValueCategory(result.decl.returnType)
+                        node.functionDecl = result.decl;
                         callee.resolvedType = result.decl.signatureType;
                     }
 

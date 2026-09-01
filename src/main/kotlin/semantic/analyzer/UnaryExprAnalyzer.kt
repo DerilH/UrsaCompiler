@@ -3,9 +3,11 @@ package org.derilh.analyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.UnaryExpressionNode
+import org.derilh.core.OpResult
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.ValueCategory
+import org.derilh.core.asSuccess
 import org.derilh.core.getOrElse
 import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
@@ -33,9 +35,10 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
             node.resolvedType = ctx.types.decay(type)
             node.valueCategory = ValueCategory.PRVALUE
         } else if (type.isPointer()) {
-            val info = resolvePointerUnaryOpType(node.operand.resolvedType as SemanticType.Pointer, node, ctx);
-            node.resolvedType = info?.type;
-            node.valueCategory = info?.valueCategory;
+            val info = resolvePointerUnaryOpType(node.operand.resolvedType as SemanticType.Pointer, node, ctx).getOrElse { ctx.error(it); return node; }
+            node.resolvedType = info.type;
+            node.valueCategory = info.valueCategory;
+            node.operand = ctx.buildConversion(node.operand,info.type,info.valueCategory ).getOrElse { ctx.error(it); return node; }
             return node;
         } else {
             var isPrimitive = false;
@@ -55,7 +58,7 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
                 }
             }
 
-            val additionalParam = if (node.operator == Operator.INCREMENT || node.operator == Operator.DECREMENT) {
+            val additionalParam = if ((node.operator == Operator.INCREMENT || node.operator == Operator.DECREMENT) && !node.isPrefix) {
                 ExpressionInfo(ctx.types.int, ValueCategory.PRVALUE, false)
             } else null
             val overloads = ctx.resolveOpOverloads(scope, node.operator, false, operandInfo, additionalParam)
@@ -66,9 +69,7 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
             node.valueCategory = ctx.getRefValueCategory(result.decl.returnType)
             //TODO: check if overload is valid for primitive (maybe not needed check for empty conversion sequence;
             //TODO: Add replacing of binary expression to overload call if not builtin overload
-            if (!isPrimitive) {
-                node.operand = ctx.buildConversionSeq(node.operand, result.sequences.first());
-            }
+            node.operand = ctx.buildConversionSeq(node.operand, result.sequences.first());
         }
 
         return node;
@@ -78,56 +79,50 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
         operand: SemanticType.Pointer,
         node: UnaryExpressionNode,
         ctx: AnalyzeContext
-    ): ExpressionInfo? {
+    ): OpResult<ExpressionInfo> {
         val pointee = operand.pointee
 
         return when (node.operator) {
             Operator.POINTER -> {
                 if (pointee.isPrimitive(PrimitiveTypeKind.VOID)) {
-                    ctx.error("Cannot dereference 'void*'", node)
-                    null
+                    OpResult.failure("Cannot dereference 'void*'", node)
                 } else if (!pointee.isComplete) {
-                    ctx.error("Cannot dereference pointer to incomplete type '${pointee}'", node)
-                    null
+                    OpResult.failure("Cannot dereference pointer to incomplete type '${pointee}'", node)
                 } else {
-                    ExpressionInfo(pointee, ValueCategory.LVALUE, false)
+                    ExpressionInfo(pointee, ValueCategory.LVALUE, false).asSuccess
                 }
             }
 
             Operator.AMP -> {
                 val t = ctx.types.getPointer(pointee = operand, isConst = false, isVolatile = false)
-                ExpressionInfo(t, ValueCategory.PRVALUE, false)
+                ExpressionInfo(t, ValueCategory.PRVALUE, false).asSuccess
             }
 
             Operator.NOT -> {
-                ExpressionInfo(ctx.types.bool, ValueCategory.PRVALUE, false)
+                ExpressionInfo(ctx.types.bool, ValueCategory.PRVALUE, false).asSuccess
             }
 
             Operator.PLUS -> {
-                ExpressionInfo(operand, ValueCategory.PRVALUE, false)
+                ExpressionInfo(operand, ValueCategory.PRVALUE, false).asSuccess
             }
 
             Operator.INCREMENT, Operator.DECREMENT -> {
                 if (operand.isConst) {
-                    ctx.error("Cannot apply '${node.operator}' to const-qualified pointer", node)
-                    null
+                    OpResult.failure("Cannot apply '${node.operator}' to const-qualified pointer", node)
                 } else if (pointee.isPrimitive(PrimitiveTypeKind.VOID)) {
-                    ctx.error("Arithmetic on a pointer to void is forbidden in standard C++", node)
-                    null
+                    OpResult.failure("Arithmetic on a pointer to void is forbidden in standard C++", node)
                 } else if (!pointee.isComplete) {
-                    ctx.error("Arithmetic on a pointer to an incomplete type '${pointee}'", node)
-                    null
+                    OpResult.failure("Arithmetic on a pointer to an incomplete type '${pointee}'", node)
                 } else {
-                    ExpressionInfo(ctx.types.bool, ValueCategory.LVALUE, false)
+                    ExpressionInfo(ctx.types.bool, ValueCategory.LVALUE, false).asSuccess
                 }
             }
 
             Operator.MINUS, Operator.BIT_NOT -> {
-                ctx.error("Invalid argument type '${operand}' to unary expression '${node.operator}'", node)
-                null
+                OpResult.failure("Invalid argument type '${operand}' to unary expression '${node.operator}'", node)
             }
 
-            else -> null
+            else -> OpResult.failure("Cannot apply operatoe ${node.operator.value} to type ${node.operand.resolvedType}}", node)
         }
     }
 }

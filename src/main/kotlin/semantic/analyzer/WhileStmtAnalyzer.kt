@@ -19,6 +19,7 @@ class WhileStmtAnalyzer : NodeAnalyzer<WhileStatementNode> {
             return node;
         }
         node.condition = ctx.analyze(node.condition, ctx.scope) as ExpressionNode;
+        if(node.condition.resolvedType == null) return node;
         node.condition = ctx.buildConversion(node.condition, ctx.types.bool, ValueCategory.PRVALUE).getOrElse { ctx.error(it); return node };
 
         val returns = mutableListOf<ReturnStatementNode>()

@@ -334,7 +334,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
 
         var decl: DeclSymbol.VariableDecl? = null;
-        if(id == null) {
+        if (id == null) {
             return AbstractDeclaratorNode(finalType, initializer, location);
         }
         if (defineInScope) {
@@ -479,10 +479,10 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
     private fun parseExpressionList(): List<ExpressionNode> {
         val exprs = mutableListOf<ExpressionNode>()
-        while (currentToken() notA Symbol.SEPARATOR && currentToken() notA Symbol.RPAREN && currentToken() notA Symbol.END) {
+//        while (currentToken() notA Symbol.SEPARATOR && currentToken() notA Symbol.RPAREN && currentToken() notA Symbol.END) {
+        do {
             exprs += parseExpression();
-            consume(Symbol.COMMA, false)
-        }
+        } while (consume(Symbol.COMMA, false))
         return exprs;
     }
 
@@ -502,10 +502,8 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
     private fun parseArrayAccess(expression: ExpressionNode): ArrayAccessNode {
         val location = currentToken().location
         consume(Symbol.LBRACKET)
-        val index: ExpressionNode? =
-            if (consume(Symbol.RBRACKET, false)) {
-                null
-            } else parseExpression()
+        val index: ExpressionNode = parseExpression()
+        consume(Symbol.RBRACKET)
         return ArrayAccessNode(expression, index, location);
     }
 
@@ -827,12 +825,12 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             is IdentifierNode -> DeclaredTypeNode(typeId, isConst, isVolatile, location).also { assertNoPrimitives() }
             is PrimitiveTypeKind -> {
                 checkPrimitiveCombinations(typeId, isSigned, isShort, longCount)
-                val king = resolvePrimitiveKind(typeId, isSigned, isShort, longCount == 1, longCount == 2)
+                val kind = resolvePrimitiveKind(typeId, isSigned, isShort, longCount == 1, longCount == 2)
                         ?: run {
                             error("Invalid type provided: $typeId")
                             PrimitiveTypeKind.INT
                         }
-                PrimitiveTypeNode(king, isConst, isVolatile, location)
+                PrimitiveTypeNode(kind, isConst, isVolatile, location)
             }
 
             else -> {
@@ -1214,15 +1212,17 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
                 val name = param.name?.name ?: continue
                 var paramDeclarator = param.declarator;
                 val paramDecl: DeclSymbol;
-                when(paramDeclarator) {
+                when (paramDeclarator) {
                     is FunctionDeclaratorNode -> {
-                        paramDecl =  DeclSymbol.functionDecl(name, sema.scope.ownerSymbol, (paramDeclarator.type as FunctionTypeNode).qualifiers, paramDeclarator.defaultParamCount)
+                        paramDecl = DeclSymbol.functionDecl(name, sema.scope.ownerSymbol, (paramDeclarator.type as FunctionTypeNode).qualifiers, paramDeclarator.defaultParamCount)
                         paramDeclarator.functionDecl = paramDecl;
                     }
-                    is VariableDeclaratorNode ->  {
-                        paramDecl =  DeclSymbol.variable(name, sema.scope.ownerSymbol)
+
+                    is VariableDeclaratorNode -> {
+                        paramDecl = DeclSymbol.variable(name, sema.scope.ownerSymbol)
                         paramDeclarator.varDecl = paramDecl;
                     }
+
                     else -> throw IllegalStateException("Invalid declarator type")
                 }
                 paramDecl.astNode = paramDeclarator;
@@ -1263,7 +1263,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
                     parseSeparator()
                 }
             }
-            while(consume(Symbol.SEPARATOR,false));
+            while (consume(Symbol.SEPARATOR, false));
         }
         if (withBraces) {
             consume(Symbol.END)
@@ -1303,8 +1303,67 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             token isA Keyword.WHILE -> parseWhileStatement()
             token isA Keyword.DO -> parseDoStatement()
             token isA Keyword.CONTINUE -> parseContinueStatement();
+            token isA Keyword.ASM -> parseAsmStatement();
             else -> tryParseDeclarationOrDefinition();
         }
+    }
+
+    private fun parseAsmStatement(): StatementNode {
+
+        consume(Keyword.ASM);
+        val isVolatile = consume(Keyword.VOLATILE, false);
+
+        consume(Symbol.LPAREN)
+        val asmString = parseValueExpression();
+        if (asmString !is StringLiteralNode && asmString !is StringConcatExpressionNode) {
+            return error("Expected string literal constant in asm statement", currentToken())
+        }
+
+        val outList = if (consume(Symbol.COLON, false)) {
+            if (currentToken() isA Symbol.COLON) {
+                emptyList();
+            } else parseAsmOperandList(false) ?: return RecoveryStatementNode(currentToken().location);
+        } else emptyList();
+
+        val inList = if (consume(Symbol.COLON, false)) {
+            if (currentToken() isA Symbol.COLON) {
+                emptyList();
+            } else parseAsmOperandList(true) ?: return RecoveryStatementNode(currentToken().location);
+        } else emptyList();
+        val constraintsList = if (consume(Symbol.COLON, false)) {
+            if (currentToken() isA Symbol.COLON || currentToken() isA Symbol.RPAREN) {
+                emptyList();
+            } else parseAsmClobberList() ?: return RecoveryStatementNode(currentToken().location);
+        } else emptyList();
+        consume(Symbol.RPAREN);
+        return AsmStatementNode(asmString, outList, inList, constraintsList, isVolatile, currentToken().location);
+    }
+
+    fun parseAsmOperandList(isInput: Boolean): List<AsmOperandNode>? {
+        val exprs = mutableListOf<AsmOperandNode>()
+        do {
+            val constraint = parseValueExpression();
+            if (constraint !is StringLiteralNode && constraint !is StringConcatExpressionNode) {
+                errorExpr("Expected string constant in asm operand constraint")
+                return null;
+            }
+            val expr = parseExpression();
+            exprs += AsmOperandNode(constraint, expr, isInput, currentToken().location);
+        } while (consume(Symbol.COMMA, false))
+        return exprs;
+    }
+
+    fun parseAsmClobberList(): List<ExpressionNode>? {
+        val exprs = mutableListOf<ExpressionNode>()
+        do {
+            val clobber = parseValueExpression();
+            if (clobber !is StringLiteralNode && clobber !is StringConcatExpressionNode) {
+                errorExpr("Expected string constant in asm clobber")
+                return null;
+            }
+            exprs += clobber;
+        } while (consume(Symbol.COMMA, false))
+        return exprs;
     }
 
     private fun tryParseDeclarationOrDefinition(): StatementNode {
@@ -1431,7 +1490,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
     private fun parseParameter(): ParameterNode {
         val location = currentToken().location
         var type = tryParseType();
-        if(type == null) {
+        if (type == null) {
             type = errorType("Cannot parse type in parameter", currentToken())
             position++
         }

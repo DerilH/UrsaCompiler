@@ -69,12 +69,14 @@ abstract class TargetInfo(val types: TargetTypesInfo) {
     }
 
     fun getRank(kind: PrimitiveTypeKind): Int {
-        return when (kind) {
-            PrimitiveTypeKind.WCHAR_T -> getRank(types.wCharType)
-            PrimitiveTypeKind.CHAR16_T -> getRank(types.char16Type)
-            PrimitiveTypeKind.CHAR32_T -> getRank(types.char32Type)
-            else -> kind.intRank
-        }
+        return getUnderlyingType(kind).intRank
+//        return when (kind) {
+//            PrimitiveTypeKind.WCHAR_T -> getRank(types.wCharType)
+//            PrimitiveTypeKind.CHAR16_T -> getRank(types.char16Type)
+//            PrimitiveTypeKind.CHAR32_T -> getRank(types.char32Type)
+//            PrimitiveTypeKind.SIZE_T -> getRank(types.sizeType)
+//            else -> kind.intRank
+//        }
     }
 
     fun getUnderlyingType(type: PrimitiveTypeKind): PrimitiveTypeKind {

@@ -35,7 +35,4 @@ enum class PrimitiveTypeKind(val isInt: Boolean = false, val isFloat: Boolean = 
     }
 }
 
-data class TypeInfo(
-    val widthBits: Long,
-    val alignBits: Long
-)
+data class TypeInfo(val widthBits: Long, val alignBits: Long)

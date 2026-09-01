@@ -9,6 +9,7 @@ enum class Keyword(val value: String, val isType: Boolean = false) {
     CASE("case"),
     BREAK("break"),//
     CONTINUE("continue"),//
+    ASM("asm"),//
     PRIVATE("private"),//
     PROTECTED("protected"),//
     PUBLIC("public"),//

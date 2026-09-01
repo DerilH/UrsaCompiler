@@ -1,7 +1,9 @@
 package org.derilh.ir
 
-class UIRBuilder {
-    fun generate() ;
+import org.derilh.ast.ASTNode
+
+interface IIRBuilder {
+    fun generate(ast: ASTNode)
 }
 
 // Load %addr, $reg-> for load from mem to reg

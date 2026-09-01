@@ -16,9 +16,9 @@ class StringLiteralAnalyzer : NodeAnalyzer<StringLiteralNode> {
 
         val realPrefix = if (prefix == CharPrefix.WIDE) {
             when (ctx.target.types.wchar_t.widthBits) {
-                8 -> CharPrefix.UTF8
-                16 -> CharPrefix.UTF16
-                32 -> CharPrefix.UTF32
+                8L -> CharPrefix.UTF8
+                16L -> CharPrefix.UTF16
+                32L -> CharPrefix.UTF32
                 else -> throw IllegalStateException("wchar_t has invalid size in target info: ${ctx.target.types.wchar_t.widthBits}")
             }
         } else {
@@ -40,15 +40,13 @@ class StringLiteralAnalyzer : NodeAnalyzer<StringLiteralNode> {
             val uCodePoint = codePoint.toUInt().toULong()
 
             if (uCodePoint > maxCharVal) {
-                ctx.error(
-                    "Character value $codePoint is out of range for string prefix $prefix (max: $maxCharVal)",
-                    node
-                )
+                ctx.error("Character value $codePoint is out of range for string prefix $prefix (max: $maxCharVal)", node)
                 return node;
             }
         }
 
         node.resolvedType = determineStringType(prefix, node.value.size.toLong(), ctx)
+        node.evaluated = Util.codePointsToUtf16Unescaped(node.value)
         return node;
     }
 
@@ -86,7 +84,7 @@ class StringConcatAnalyzer : NodeAnalyzer<StringConcatExpressionNode> {
         val type = determineStringType(prefix, concatArray.size.toLong(), ctx)
         return StringLiteralNode(concatArray, prefix, node.location).also {
             it.resolvedType = type
-            it.evaluated = concatArray
+            it.evaluated = Util.codePointsToUtf16Unescaped(concatArray)
         }
     }
 }

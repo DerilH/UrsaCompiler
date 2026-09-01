@@ -385,7 +385,7 @@ class ArrayTypeNode(
     }
 }
 
-class ArrayAccessNode(override val operand: ExpressionNode, override val index: ExpressionNode? = null, override val location: SourceLocation?) : ExpressionNode(), IArrayAccessNode {
+class ArrayAccessNode(override var operand: ExpressionNode, override var index: ExpressionNode, override val location: SourceLocation?) : ExpressionNode(), IArrayAccessNode {
     override val children: List<ASTNode>
         get() = listOfNotNull(operand, index)
 
@@ -512,14 +512,14 @@ data class FunctionDefinitionNode(
 }
 
 
-abstract class ExpressionNode(override var valueCategory: ValueCategory? = null) : ASTNode, IExpressionNode {
-    var resolvedType: SemanticType? = null
+abstract class ExpressionNode(override var valueCategory: ValueCategory = ValueCategory.PRVALUE) : ASTNode, IExpressionNode {
+    var resolvedType: SemanticType = SemanticType.Error;
     var evaluated: Any? = null
 
     override val children: List<ASTNode> get() = emptyList()
 }
 
-class ErrorTypeNode(override val location: SourceLocation?) : TypeNode(false,false) {
+class ErrorTypeNode(override val location: SourceLocation?) : TypeNode(false, false) {
     override fun toString(): String = "ErrorTypeNode"
     override fun equals(other: Any?): Boolean {
         return false;
@@ -722,6 +722,26 @@ data class ReturnStatementNode(
 ) : StatementNode(location), IReturnStatementNode {
     override val children: List<ASTNode> get() = listOfNotNull(expression)
 }
+
+
+//TODO: Add volatile, goto and inline specifiers
+data class AsmStatementNode(
+    override var asmExr: ExpressionNode,
+    override var outList: List<AsmOperandNode>,
+    override var inList: List<AsmOperandNode>,
+    override var clobberList: List<ExpressionNode> ,
+    val isVolatile: Boolean,
+    override val location: SourceLocation?
+) : StatementNode(location), IAsmStatementNode {
+    override val children: List<ASTNode> get() = listOfNotNull(asmExr) + outList + inList;
+    override fun toString(): String = "AsmStatementNode"
+}
+
+class AsmOperandNode(override var constraint: ExpressionNode, override var expr: ExpressionNode, override val isInput: Boolean, location: SourceLocation?) : StatementNode(location), IAsmOperandNode {
+    override val children: List<ASTNode> = listOf(constraint, expr)
+    override fun toString(): String = "AsmOperandNode"
+}
+
 
 data class IfStatementNode(
     override var condition: ExpressionNode,

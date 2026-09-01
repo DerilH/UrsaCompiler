@@ -51,9 +51,9 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
 
         val effectivePrefix = if (prefix == CharPrefix.WIDE) {
             when (target.types.wchar_t.widthBits) {
-                8  -> CharPrefix.UTF8
-                16 -> CharPrefix.UTF16
-                32 -> CharPrefix.UTF32
+                8L  -> CharPrefix.UTF8
+                16L -> CharPrefix.UTF16
+                32L -> CharPrefix.UTF32
                 else -> throw IllegalStateException("wchar_t has invalid size in target info: ${target.types.wchar_t.widthBits}")
             }
         } else prefix
@@ -69,13 +69,13 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
                 val maxVal = Util.maxValueForByTypeWidth(width, false)
                 width to maxVal
             }
-            CharPrefix.UTF8  -> 8 to Constants.UNSIGNED_BYTE_MAX.toULong()
-            CharPrefix.UTF16 -> 16 to Constants.UNSIGNED_2BYTE_MAX.toULong()
-            CharPrefix.UTF32 -> 32 to Constants.UNSIGNED_4BYTE_MAX.toULong()
+            CharPrefix.UTF8  -> 8L to Constants.UNSIGNED_BYTE_MAX.toULong()
+            CharPrefix.UTF16 -> 16L to Constants.UNSIGNED_2BYTE_MAX.toULong()
+            CharPrefix.UTF32 -> 32L to Constants.UNSIGNED_4BYTE_MAX.toULong()
             else -> throw IllegalStateException("Cannot handle prefix: $effectivePrefix")
         }
 
-        var accumulatedBits = 0
+        var accumulatedBits = 0L
         for (codePoint in text) {
             val uCodePoint = codePoint.toUInt().toULong()
 
@@ -84,12 +84,12 @@ class CharLiteralAnalyzer : NodeAnalyzer<CharLiteralNode> {
                 return 0UL;
             }
 
-            if (accumulatedBits + bitWidth > 64) {
+            if (accumulatedBits + bitWidth > 64L) {
                 ctx.error("Character literal bit width exceeds 64-bit storage limit", null)
                 return 0UL;
             }
 
-            numericValue = (numericValue shl bitWidth) or uCodePoint
+            numericValue = (numericValue shl bitWidth.toInt()) or uCodePoint
             accumulatedBits += bitWidth
         }
 
