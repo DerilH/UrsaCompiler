@@ -24,6 +24,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
     open fun decay(key: TypeContext.Key) = this
 
     val info: TypeInfo? by lazyUntilNonNull { key!!.calculateSizeInfo(this) }
+    open val canonical: SemanticType get() = this;
 
     override fun toString(): String {
         return toDisplayString()
@@ -313,6 +314,19 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun toDisplayString(): String = "bound_method_set"
     }
 
+    class TypeDef constructor(val targetTypeDef: SemanticType, val name: String, key: TypeContext.Key) : SemanticType(key = key) {
+        override val canonical: SemanticType = targetTypeDef.canonical;
+        override val isComplete: Boolean = canonical.isComplete
+        override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType {
+            return key.getOrCreate(TypeDef(canonical.addCV(isConst, isVolatile, key), name, key))
+        }
+
+        override fun dropCV(key: TypeContext.Key): SemanticType {
+            return key.getOrCreate(TypeDef(canonical.dropCV(key), name, key));
+        }
+        override fun toDisplayString(): String = "${name}(aka ${canonical.toDisplayString()})"
+    }
+
 
     protected fun qualifiersPrefix(): String {
         val list = mutableListOf<String>()
@@ -336,6 +350,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             is Error -> false
             is OverloadSet -> false
             is BoundMethodSet -> false
+            is TypeDef -> canonical.containsAuto()
 
             is Function -> {
                 returnType.containsAuto() ||

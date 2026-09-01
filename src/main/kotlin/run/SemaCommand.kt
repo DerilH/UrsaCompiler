@@ -32,6 +32,9 @@ class SemaCommand : CliktCommand(
     private val printAst by option("-ast", "--printAst", help = "Prints ast to terminal").flag()
     private val traceErrors by option("--traceErrors", help = "Adds stack trace to errors").flag()
 
+    private val compile by option("--compile", help = "Compiles code to object file").flag()
+
+
     private val output by option("-o", "--output", help = "Source file path")
         .path(mustExist = false, canBeFile = true, mustBeWritable = true)
 
