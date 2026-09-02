@@ -16,7 +16,7 @@ import java.nio.file.Files
 
 class CompileCommand : CliktCommand(
     name = "compile",
-    help = "Run ursac compiler"
+    help = "Run all pipeline steps to compile a source file"
 ) {
     private val inputPath by option("-i", "--input", help = "Source file path")
         .path(mustExist = true, canBeFile = true, mustBeReadable = true)

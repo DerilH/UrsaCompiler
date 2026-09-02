@@ -19,7 +19,7 @@ import kotlin.io.path.absolutePathString
 
 class SemaCommand : CliktCommand(
     name = "sema",
-    help = "Run ursac compiler"
+    help = "Run the semantic analyzer on input"
 ) {
     private val inputPath by option("-i", "--input", help = "Source file path")
         .path(mustExist = true, canBeFile = true, mustBeReadable = true)

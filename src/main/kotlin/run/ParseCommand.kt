@@ -20,7 +20,7 @@ import kotlin.time.Clock
 
 class ParseCommand : CliktCommand(
     name = "parser",
-    help = "Run the lexer, preprocessor and parse on source file to obtain AST tree"
+    help = "Run the parser on a source file to obtain AST tree"
 ) {
     private val inputPath by option("-i", "--input", help = "Source file path")
         .path(mustExist = true, canBeFile = true, mustBeReadable = true)
