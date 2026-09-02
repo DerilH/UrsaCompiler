@@ -55,7 +55,12 @@ sealed class DeclSymbol(
         lateinit var type: SemanticType
     }
 
-
+    class TypedefDecl(
+        name: String,
+        parentSymbol: DeclSymbol?,
+    ) : DeclSymbol(name, parentSymbol) {
+        lateinit var canonicalType: SemanticType
+    }
     open class FunctionDecl(
         name: String,
         parentSymbol: DeclSymbol?,
@@ -86,7 +91,6 @@ sealed class DeclSymbol(
         isBuiltin: Boolean,
         defaultParamsCount: Int
     ) : FunctionDecl(name, parentSymbol, qualifiers, isMethod, isBuiltin, defaultParamsCount) {
-
     }
 
     class ConstructorDecl(
@@ -100,6 +104,9 @@ sealed class DeclSymbol(
 
 
     companion object {
+        fun typedef(name: String, parentSymbol: DeclSymbol?): TypedefDecl {
+            return TypedefDecl(name, parentSymbol);
+        }
         fun variable(name: String, parentSymbol: DeclSymbol?): VariableDecl {
             return VariableDecl(name, parentSymbol)
         }

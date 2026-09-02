@@ -6,39 +6,37 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.types.path
 import org.derilh.PreProcessor
-import org.derilh.lexer.Lexer
 import java.nio.file.Files
 import kotlin.io.path.writeText
 
-class LexerCommand : CliktCommand(
-    name = "lexer",
-    help = "Run the lexer on a source file"
+class PreprocessorCommand : CliktCommand(
+    name = "preprocessor",
+    help = "Run the preprocessor on a source file"
 ) {
     private val inputPath by option("-i", "--input", help = "Source file path")
         .path(mustExist = true, canBeFile = true, mustBeReadable = true)
         .required()
 
-    private val output by option("-o", "--output", help = "Source file path")
+    private val output by option("-o", "--output", help = "File to output preprocessed code to")
         .path(mustExist = false, canBeFile = true, mustBeWritable = true)
 
+
     private val printTerminal by option("-t", "--terminal", help = "Prints result to terminal").flag()
+
 
     override fun run() {
         var code = Files.readString(inputPath)
         val preProcessor = PreProcessor();
         code = preProcessor.preProcess(code, inputPath)
 
-        val lexer = Lexer()
-        val tokens = lexer.tokenize(code, inputPath.toString())
         if(output != null) {
-            Files.createFile(output!!).writeText(tokens.joinToString("\n") { it.toString() })
+            Files.createFile(output!!).writeText(code)
         }
-
         if(printTerminal) {
-            tokens.forEachIndexed { index, token ->  println("${token.location.line} : $token") }
+            println(code)
         }
 
-        if(output == null && !printTerminal) error("No output method specified. Use -o or to to specify an output file or terminal.")
+        if(output == null && !printTerminal) error("No output method specified. Use -o or -t to specify an output file or terminal.")
     }
 }
 

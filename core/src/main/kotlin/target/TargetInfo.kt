@@ -1,11 +1,23 @@
-package org.derilh.target
+package org.derilh.core.target
 
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.TypeInfo
 import java.math.BigDecimal
 import java.math.BigInteger
 
-abstract class TargetInfo(val types: TargetTypesInfo) {
+enum class TargerArchitecture {
+    X86_64,
+    X86_32,
+    ARM_32,
+    ARM_64,
+    MIPS_32,
+    MIPS_64,
+    PPC_32,
+    PPC_64,
+    SPARC_32,
+}
+
+abstract class TargetInfo(val architecture: TargerArchitecture, val types: TargetTypesInfo) {
 
     fun promoteIntegralType(kind: PrimitiveTypeKind): PrimitiveTypeKind {
         if (!kind.isInt) throw IllegalArgumentException("Trying to promote non-integral type $kind")

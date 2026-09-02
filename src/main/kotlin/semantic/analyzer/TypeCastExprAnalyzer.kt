@@ -3,6 +3,7 @@ package org.derilh.analyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.TypeCastExpressionNode
+import org.derilh.core.ValueCategory
 
 public class TypeCastExprAnalyzer : NodeAnalyzer<TypeCastExpressionNode> {
     override fun analyze(node: TypeCastExpressionNode, ctx: AnalyzeContext): ASTNode {
@@ -14,7 +15,10 @@ public class TypeCastExprAnalyzer : NodeAnalyzer<TypeCastExpressionNode> {
 //        }
 //        node.resolvedType = node.declaratorNode.type.resolvedType;
 //        TODO("Type cast not yet implemented")
-        ctx.error("Type cast not yet implemented", node)
+        node.operand = ctx.analyze(node.operand, ctx.scope) as ExpressionNode;
+        ctx.analyze(node.declaratorNode, ctx.scope)
+        node.resolvedType = node.declaratorNode.type.resolvedType;
+        node.valueCategory = ValueCategory.PRVALUE;
         return node;
     }
 }

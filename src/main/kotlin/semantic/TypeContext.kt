@@ -4,7 +4,7 @@ import org.derilh.analyzer.DeclSymbol
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.TypeInfo
-import org.derilh.target.TargetInfo
+import org.derilh.core.target.TargetInfo
 import org.derilh.util.Util
 import kotlin.concurrent.fixedRateTimer
 import kotlin.math.max
@@ -113,6 +113,10 @@ class TypeContext(val target: TargetInfo) {
 
     fun getBoundMethodSet(thisInfo: ExpressionInfo, name: String, overloads: List<DeclSymbol.FunctionDecl>): SemanticType.BoundMethodSet {
         return SemanticType.BoundMethodSet(thisInfo, name, overloads, key)
+    }
+
+    fun getTypeDef(name: String, canonical: SemanticType, isConst: Boolean, isVolatile: Boolean): SemanticType.TypeDef {
+        return SemanticType.TypeDef(canonical,name,isConst, isVolatile, key);
     }
 
 

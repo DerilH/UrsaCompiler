@@ -31,6 +31,7 @@ class CallExprAnalyzer : NodeAnalyzer<CallExpressionNode> {
             val callee = node.callee ?: return node;
             ctx.analyze(callee, ctx.scope);
             val calleeType = callee.resolvedType ?: return node;
+            val canonCallee = calleeType.canonical
 
             val argsInfo = node.arguments.arguments.map {
                 ctx.analyze(it, ctx.scope)
@@ -39,8 +40,8 @@ class CallExprAnalyzer : NodeAnalyzer<CallExpressionNode> {
             }
 
             when {
-                calleeType.isFunctionPointer() || calleeType.isFunctionRef() || calleeType is SemanticType.Function -> {
-                    val func = ((calleeType as? SemanticType.Pointer)?.pointee ?: (calleeType as? SemanticType.Reference)?.pointee ?: calleeType) as SemanticType.Function;
+                canonCallee.isFunctionPointer() || canonCallee.isFunctionRef() || canonCallee is SemanticType.Function -> {
+                    val func = ((canonCallee as? SemanticType.Pointer)?.pointee?.canonical ?: (canonCallee as? SemanticType.Reference)?.pointee?.canonical ?: canonCallee) as SemanticType.Function;
                     val params = func.params;
                     convArgs = ctx.probeCallArgs(params, 0, argsInfo, node.arguments.location!!, breakOnMiss = false).mapIndexed { index, result ->
                         val conv = result.getOrElse { ctx.error(it); return@analyze node }
@@ -48,8 +49,9 @@ class CallExprAnalyzer : NodeAnalyzer<CallExpressionNode> {
                     }
                 }
 
-                calleeType.isPointer() && calleeType.pointee.isDeclared() || calleeType.isDeclared() -> {
-                    val declared = ((calleeType as? SemanticType.Pointer)?.pointee as? SemanticType.Declared) ?: calleeType as SemanticType.Declared
+                canonCallee.isPointer() && canonCallee.pointee.canonical.isDeclared() || canonCallee.isDeclared() -> {
+                    val canonPointee = (canonCallee as? SemanticType.Pointer)?.pointee?.canonical
+                    val declared = (canonPointee as? SemanticType.Declared) ?: canonCallee as SemanticType.Declared
                     val found: DeclSymbol.FunctionOverloadSet = ctx.resolveSymbolsLocal("${SemanticAnalyzer.OPERATOR_FUN_PREFIX}()", declared.decl.scope).getAsOrElse { ctx.error(it); return node }
 
                     val viableByThis = found.overloads.filter { methodDecl ->
@@ -72,16 +74,16 @@ class CallExprAnalyzer : NodeAnalyzer<CallExpressionNode> {
                     node.valueCategory = ctx.getRefValueCategory(result.decl.returnType)
                 }
 
-                calleeType is SemanticType.OverloadSet -> {
+                canonCallee is SemanticType.OverloadSet -> {
                     val overloads = mutableListOf<DeclSymbol.FunctionDecl>();
-                    val enableADL = calleeType.isUnqualified && node.callee is IdExpressionNode
+                    val enableADL = canonCallee.isUnqualified && node.callee is IdExpressionNode
                     if (enableADL) {
-                        overloads += ctx.collectADLOverloads(calleeType.name, *argsInfo.toTypedArray());
+                        overloads += ctx.collectADLOverloads(canonCallee.name, *argsInfo.toTypedArray());
                     }
-                    overloads += calleeType.overloads;
+                    overloads += canonCallee.overloads;
 
                     val matches = ctx.findBestMatch(overloads, argsInfo).distinctBy { System.identityHashCode(it.decl) }
-                    val result = ErrorHelper.checkViableSet(matches, calleeType.name, callee.location!!).getOrElse {
+                    val result = ErrorHelper.checkViableSet(matches, canonCallee.name, callee.location!!).getOrElse {
                         ctx.error(it);
                         node.resolvedType = ctx.types.getError();
                         node.valueCategory = ValueCategory.PRVALUE
@@ -104,12 +106,12 @@ class CallExprAnalyzer : NodeAnalyzer<CallExpressionNode> {
                     }
                 }
 
-                calleeType is SemanticType.BoundMethodSet -> {
-                    val viableByThis = calleeType.overloads.filter { methodDecl ->
+                canonCallee is SemanticType.BoundMethodSet -> {
+                    val viableByThis = canonCallee.overloads.filter { methodDecl ->
                         isThisCompatible(methodDecl, ExpressionInfo(calleeType, callee.valueCategory!!, false))
                     }
                     val matches = ctx.findBestMatch(viableByThis, argsInfo).distinctBy { System.identityHashCode(it.decl) }
-                    val result = ErrorHelper.checkViableSet(matches, calleeType.name, callee.location!!).getOrElse {
+                    val result = ErrorHelper.checkViableSet(matches, canonCallee.name, callee.location!!).getOrElse {
                         ctx.error(it);
                         node.resolvedType = ctx.types.getError();
                         node.valueCategory = ValueCategory.PRVALUE

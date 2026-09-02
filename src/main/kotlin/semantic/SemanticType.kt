@@ -12,6 +12,7 @@ import org.derilh.semantic.SemanticType.RValueReference
 import org.derilh.semantic.SemanticType.Reference
 import org.derilh.util.lazyUntilNonNull
 import java.util.Objects
+import javax.swing.JEditorPane
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
@@ -25,6 +26,10 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
 
     val info: TypeInfo? by lazyUntilNonNull { key!!.calculateSizeInfo(this) }
     open val canonical: SemanticType get() = this;
+
+    infix fun isSame(other: SemanticType?): Boolean {
+        return this === other
+    }
 
     override fun toString(): String {
         return toDisplayString()
@@ -67,7 +72,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other !is Pointer) return false
-            return pointee === other.pointee && isConst == other.isConst && isVolatile == other.isVolatile
+            return (pointee isSame other.pointee) && isConst == other.isConst && isVolatile == other.isVolatile
         }
 
         override fun hashCode(): Int = Objects.hash(javaClass, pointee, isConst, isVolatile)
@@ -84,8 +89,8 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun toDisplayString(): String = "${pointee.toDisplayString()}&"
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
-            if (other !is Pointer) return false
-            return pointee === other.pointee
+            if (other !is Reference) return false
+            return pointee isSame other.pointee
         }
 
         override fun hashCode(): Int = Objects.hash(javaClass, pointee, isConst, isVolatile)
@@ -101,8 +106,8 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun toDisplayString(): String = "${pointee.toDisplayString()}&&"
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
-            if (other !is Pointer) return false
-            return pointee === other.pointee
+            if (other !is RValueReference) return false
+            return pointee isSame other.pointee
         }
 
         override fun hashCode(): Int = Objects.hash(javaClass, pointee, isConst, isVolatile)
@@ -139,7 +144,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other !is Array) return false
-            return elementType === other.elementType && size == other.size
+            return (elementType isSame other.elementType) && size == other.size
         }
 
         override fun hashCode(): Int = Objects.hash(elementType, size)
@@ -179,11 +184,11 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
             if (other !is Function) return false
-            if (returnType !== other.returnType || qualifiers != other.qualifiers) return false
+            if (!(returnType isSame other.returnType) || qualifiers != other.qualifiers) return false
             if (params.size != other.params.size) return false
 
             for (i in params.indices) {
-                if (params[i] !== other.params[i]) return false
+                if (!(params[i] isSame other.params[i])) return false
             }
             return true
         }
@@ -251,7 +256,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             if (this === other) return true
             if (other !is MemberPointer) return false
             return decl === other.decl &&
-                    pointee === other.pointee &&
+                    (pointee isSame other.pointee) &&
                     isConst == other.isConst &&
                     isVolatile == other.isVolatile
         }
@@ -314,15 +319,23 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun toDisplayString(): String = "bound_method_set"
     }
 
-    class TypeDef constructor(val targetTypeDef: SemanticType, val name: String, key: TypeContext.Key) : SemanticType(key = key) {
-        override val canonical: SemanticType = targetTypeDef.canonical;
+    class TypeDef constructor(val targetTypeDef: SemanticType, val name: String, isConst: Boolean, isBoolean: Boolean, key: TypeContext.Key) : SemanticType(isConst, isBoolean, key = key) {
+        override val canonical: SemanticType = targetTypeDef.canonical.addCV(isConst,isVolatile,key);
         override val isComplete: Boolean = canonical.isComplete
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType {
-            return key.getOrCreate(TypeDef(canonical.addCV(isConst, isVolatile, key), name, key))
+            return canonical.addCV(isConst, isVolatile, key);
         }
 
         override fun dropCV(key: TypeContext.Key): SemanticType {
-            return key.getOrCreate(TypeDef(canonical.dropCV(key), name, key));
+            return canonical.dropCV(key)
+        }
+
+        override fun decay(key: TypeContext.Key): SemanticType {
+            return canonical.decay(key);
+        }
+
+        override fun removeRef(key: TypeContext.Key): SemanticType {
+            return canonical.removeRef(key);
         }
         override fun toDisplayString(): String = "${name}(aka ${canonical.toDisplayString()})"
     }
@@ -429,8 +442,6 @@ fun SemanticType.isPrimitive(): Boolean {
 
 @OptIn(ExperimentalContracts::class)
 fun SemanticType.isPrimitive(kind: PrimitiveTypeKind): Boolean {
-    contract {
-        returns(true) implies (this@isPrimitive is Primitive)
-    }
-    return this is Primitive && this.kind == kind;
+    val canon = this.canonical
+    return canon is Primitive && canon.kind == kind;
 }

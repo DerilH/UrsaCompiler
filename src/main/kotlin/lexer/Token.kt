@@ -109,6 +109,11 @@ class KeywordToken(val value: Keyword, location: SourceLocation) : Token(locatio
     }
 }
 
+
+class PreprocessorToken(val value: String, location: SourceLocation) : Token(location) {
+    override val stringValue: String get() = value
+}
+
 class SymbolToken(val value: Symbol, location: SourceLocation) : Token(location) {
     override val stringValue: String
         get() = value.value.toString()

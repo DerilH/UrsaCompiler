@@ -1,10 +1,11 @@
-package org.derilh.target
+package org.derilh.core.target
 
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.TypeInfo
+import org.derilh.core.target.X86_64LinuxTargetInfo.types
 import java.math.BigDecimal
 
-private val types = TargetTypesInfo(
+private val t = TargetTypesInfo(
     isCharSigned = true,
     bool = TypeInfo(8, 8),
     char = TypeInfo(8, 8),
@@ -42,5 +43,4 @@ private val types = TargetTypesInfo(
     maxLongDouble = BigDecimal("1.189731495357231765085759326628007016196477e4932")
 )
 
-object X86_64LinuxTargetInfo : TargetInfo(types = types
-)
+object X86_64LinuxTargetInfo : TargetInfo(architecture = TargerArchitecture.X86_64, types = t)

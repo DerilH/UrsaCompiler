@@ -56,7 +56,6 @@ class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclaratorNode> {
         return ctx.withScope(node.functionDecl.scope) {
             var hasDefault = false;
             for (param in type.params) {
-                ctx.analyze(param, ctx.scope)
                 if(hasDefault && !param.hasDefaultValue) {
                     ctx.error("Missing default value on parameter ${param.name?.toDisplayString()}", node = param)
                 }
@@ -139,7 +138,7 @@ class FunctionDefAnalyzer : NodeAnalyzer<FunctionDefinitionNode> {
 
         for (ret in returns) {
             val retType = ret.expression?.resolvedType ?: ctx.types.void;
-            if (returnType != null && ctx.types.removeRef(returnType) !== ctx.types.removeRef(retType)) {
+            if (returnType != null && !(ctx.types.removeRef(returnType) isSame ctx.types.removeRef(retType))) {
                 if (needsDeduce) {
                     ctx.error(
                         "'auto' in return type deduced as ${returnType} earlier but here deduced as ${retType}",
@@ -170,7 +169,7 @@ fun combineOverloads(overloadSet: DeclSymbol.FunctionOverloadSet,  functionDecl:
     }
 
     if(firstDecl != null) {
-        if(firstDecl.returnType !== functionDecl.returnType || firstDecl.qualifiers.isNoExcept != functionDecl.qualifiers.isNoExcept) {
+        if(!(firstDecl.returnType isSame functionDecl.returnType) || firstDecl.qualifiers.isNoExcept != functionDecl.qualifiers.isNoExcept) {
             ctx.error(ErrorHelper.alreadyDefined(functionDecl, firstDecl))
         }
 

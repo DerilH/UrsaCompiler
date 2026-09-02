@@ -1,6 +1,5 @@
 package org.derilh.ir
 
-import com.sun.tools.javac.tree.TreeInfo.args
 import org.bytedeco.javacpp.BytePointer
 import org.bytedeco.javacpp.PointerPointer
 import org.bytedeco.llvm.LLVM.*
@@ -18,13 +17,59 @@ import java.math.BigInteger
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.*
-import kotlin.math.exp
+
+class LLVMIRModule(val llvmTarget: LLVMTargetInfo, val module: LLVMModuleRef) : IIRModule {
+    override fun compileTo(outputFileName: String): Boolean {
+
+
+        val verifyErr = PointerPointer<BytePointer>(1)
+
+        if (LLVMVerifyModule(module, LLVMPrintMessageAction, verifyErr) != 0) {
+            return false;
+        }
+
+        LLVMSetTarget(module, llvmTarget.targetTriple)
+        LLVMSetModuleDataLayout(module, llvmTarget.dataLayout)
+
+        val outputFile = BytePointer(outputFileName)
+        val emitErrorPtr = PointerPointer<BytePointer>(1)
+
+        val result = LLVMTargetMachineEmitToFile(
+            llvmTarget.target,
+            module,
+            outputFile,
+            LLVMObjectFile,
+            emitErrorPtr
+        )
+
+        if (result != 0) {
+            val msgPtr = emitErrorPtr.get(BytePointer::class.java)
+            LLVMDisposeMessage(msgPtr)
+            return false
+        }
+
+        println("File $outputFileName successfully generated!")
+
+        return true;
+    }
+
+    override fun emitIRTo(outputFileName: String): Boolean {
+        val verifyErr = PointerPointer<BytePointer>(1)
+        if (LLVMVerifyModule(module, LLVMPrintMessageAction, verifyErr) != 0) {
+            return false;
+        }
+        val ptr = BytePointer();
+        LLVMPrintModuleToFile(module,outputFileName,ptr)
+        return true;
+    }
+}
 
 
 class LLVMIRBuilder(val options: Options) : IIRBuilder {
-    val context: LLVMContextRef;
-    val module: LLVMModuleRef;
-    val builder: LLVMBuilderRef;
+    lateinit var context: LLVMContextRef;
+    lateinit var module: LLVMModuleRef;
+    lateinit var builder: LLVMBuilderRef;
+    lateinit var targetInfo: LLVMTargetInfo
     val types = IdentityHashMap<SemanticType, LLVMTypeRef>();
     val functions = IdentityHashMap<DeclSymbol.FunctionDecl, LLVMValueRef>();
     val variables = IdentityHashMap<DeclSymbol.VariableDecl, LLVMValueRef>();
@@ -32,31 +77,27 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
     var nameIdCounter: Int = 0;
     var currentFn: LLVMValueRef? = null;
 
-    init {
-        // Инициализируем LLVM
-        LLVMInitializeX86TargetInfo();
-        LLVMInitializeX86Target();
-        LLVMInitializeX86TargetMC();
-        LLVMInitializeX86AsmPrinter();
-        LLVMInitializeX86AsmParser()
-        this.context = LLVMContextCreate();
-        this.module = LLVMModuleCreateWithNameInContext("main", context);
-        this.builder = LLVMCreateBuilderInContext(context);
-    }
+    override fun generate(ast: ASTNode): IIRModule {
+        targetInfo = LLVMInitializer.init(options.target)
 
-    override fun generate(ast: ASTNode) {
+        this.context = LLVMContextCreate();
+        val name = if (ast is RootNode) ast.name else ast.toString();
+        this.module = LLVMModuleCreateWithNameInContext(name, context);
+        this.builder = LLVMCreateBuilderInContext(context);
+
         ast as RootNode;
         ast.declarations.forEach {
             generateIR(it)
         }
 
-        emitX86ObjectFile(module, "./out.o")
+        return LLVMIRModule(targetInfo, module)
     }
 
 
     fun generateIR(ast: ASTNode): LLVMValueRef? {
         return when (ast) {
             is FunctionDefinitionNode -> getFunctionRef(ast.functionDecl)
+            is FunctionDeclaratorNode -> getFunctionRef(ast.functionDecl)
             is BinaryExpressionNode -> visitBinaryExpr(ast)
             is ReturnStatementNode -> visitReturn(ast)
             is CallExpressionNode -> visitCallExpr(ast)
@@ -70,12 +111,17 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             }
 
             is IfStatementNode -> visitIf(ast);
-            is WhileStatementNode -> visitWhile(ast)
+            is WhileStatementNode -> visitWhileStmt(ast)
             is StringLiteralNode -> visitStringLit(ast);
             is UnaryExpressionNode -> visitUnaryExpr(ast);
             is ArrayAccessNode -> visitArrayAccess(ast)
             is CharLiteralNode -> visitCharLit(ast)
             is AsmStatementNode -> visitAsm(ast);
+            is TypeDefStatementNode -> {
+                null; }
+
+            is ForStatementNode -> visitForStmt(ast)
+            is TypeCastExpressionNode -> visitTypeCastExpr(ast);
             is CompoundStatementNode -> {
                 ast.statements.forEach { generateIR(it) }
                 null
@@ -83,6 +129,12 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
             else -> throw IllegalArgumentException("Unsupported node: " + ast)
         }
+    }
+
+    fun visitTypeCastExpr(node: TypeCastExpressionNode): LLVMValueRef {
+        val operand = generateIR(node.operand)!!;
+        val type = convertType(node.resolvedType!!)
+        return LLVMBuildBitCast(builder, operand, type, getUniqueName("cast"))
     }
 
     fun visitAsm(node: AsmStatementNode): LLVMValueRef {
@@ -107,7 +159,6 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
         val fullConstraints = constraintItems.joinToString(",")
 
-        // 3. Вычисляем входные аргументы (Inputs)
         val inputArgs = mutableListOf<LLVMValueRef>()
         val inputLlvmTypes = mutableListOf<LLVMTypeRef>()
 
@@ -155,11 +206,12 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         )
 
         when (node.outList.size) {
-            0 -> { }
+            0 -> {}
             1 -> {
                 val outAddr = generateIR(node.outList[0].expr)
                 LLVMBuildStore(builder, callResult, outAddr)
             }
+
             else -> {
                 for ((index, outNode) in node.outList.withIndex()) {
                     val extractedValue = LLVMBuildExtractValue(builder, callResult, index, "asm_out_$index")
@@ -185,7 +237,37 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         return LLVMBuildGEP2(builder, convertType(node.resolvedType!!), operand, indices, 1, getUniqueName("geparr"));
     }
 
-    fun visitWhile(node: WhileStatementNode): LLVMValueRef? {
+    fun visitForStmt(node: ForStatementNode): LLVMValueRef? {
+        val condBB = LLVMAppendBasicBlock(currentFn, getUniqueName("for.cond"))
+        val bodyBB = LLVMAppendBasicBlock(currentFn, getUniqueName("for.body"))
+        val endBB = LLVMAppendBasicBlock(currentFn, getUniqueName("for.end"))
+
+        node.initializer.forEach { generateIR(it) }
+        LLVMBuildBr(builder, condBB)
+
+        LLVMPositionBuilderAtEnd(builder, condBB)
+        val condValue = generateIR(node.condition)
+        LLVMBuildCondBr(builder, condValue, bodyBB, endBB)
+
+        LLVMPositionBuilderAtEnd(builder, bodyBB)
+
+        if (node.body != null) {
+            generateIR(node.body!!)
+        }
+
+        node.increment.forEach { generateIR(it) }
+
+        val currentBlock = LLVMGetInsertBlock(builder)
+        if (LLVMGetBasicBlockTerminator(currentBlock) == null) {
+            LLVMBuildBr(builder, condBB)
+        }
+
+        LLVMPositionBuilderAtEnd(builder, endBB)
+
+        return null
+    }
+
+    fun visitWhileStmt(node: WhileStatementNode): LLVMValueRef? {
         val condBB = LLVMAppendBasicBlock(currentFn, getUniqueName("while.cond"))
         val bodyBB = LLVMAppendBasicBlock(currentFn, getUniqueName("while.body"))
         val endBB = LLVMAppendBasicBlock(currentFn, getUniqueName("while.end"))
@@ -306,8 +388,8 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
             ConversionKind.INTEGRAL_CONVERSION -> {
                 val operand = generateIR(node.operand)!!
-                val operandType = node.operand.resolvedType!! as SemanticType.Primitive
-                val nodeType = node.resolvedType!! as SemanticType.Primitive
+                val operandType = node.operand.resolvedType!!.canonical as SemanticType.Primitive
+                val nodeType = node.resolvedType!!.canonical as SemanticType.Primitive
                 return if (nodeType.kind.intRank > operandType.kind.intRank) {
                     LLVMBuildSExt(builder, operand, convertType(nodeType), getUniqueName("iprom"))
                 } else {
@@ -315,43 +397,17 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
                 }
             }
 
+            ConversionKind.NULL_TO_POINTER -> {
+                val t = convertType(node.resolvedType!!.canonical)
+                return LLVMConstNull(t)
+            }
+
+            ConversionKind.QUALIFICATION -> {
+                return generateIR(node.operand)!!
+            }
+
             else -> throw IllegalArgumentException("Unsupported implicit cast kind: ${node.kind}")
         }
-    }
-
-    fun emitSyscallPrint(buf: LLVMValueRef?, len: LLVMValueRef?): LLVMValueRef {
-        val i64 = LLVMInt64TypeInContext(context)
-        val ptr = LLVMPointerType(LLVMInt8TypeInContext(context), 0)
-
-        val paramTypes = arrayOf<LLVMTypeRef?>(i64, i64, ptr, i64)
-        val fp = PointerPointer(*paramTypes);
-        val asmType = LLVMFunctionType(i64, fp, 4, 0)
-
-        val asmString = BytePointer("syscall")
-        val constraints = BytePointer("={rax},{rax},{rdi},{rsi},{rdx},~{rcx},~{r11},~{memory}")
-        val len = if (LLVMTypeOf(len) != i64) {
-            LLVMBuildZExt(builder, len, i64, "len_i64_cast")
-        } else {
-            len
-        }
-
-        val inlineAsm = LLVMGetInlineAsm(
-            asmType,
-            asmString,
-            asmString.capacity() - 1, // без null-terminator
-            constraints,
-            constraints.capacity() - 1,
-            1, 0, LLVMInlineAsmDialectATT, 0
-        )
-        // 4. Аргументы syscall: write (1), stdout (1), buf, len
-        val args = arrayOf<LLVMValueRef?>(
-            LLVMConstInt(i64, 1, 0),  // rax = 1 (sys_write)
-            LLVMConstInt(i64, 1, 0),  // rdi = 1 (stdout)
-            buf,  // rsi = pointer
-            len // rdx = length
-        )
-        val p = PointerPointer<LLVMValueRef>(*args)
-        return LLVMBuildCall2(builder, asmType, inlineAsm, p, args.size, "sys_write_res")
     }
 
     fun visitCallExpr(node: CallExpressionNode): LLVMValueRef {
@@ -363,7 +419,7 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         val args = node.arguments.arguments.map { generateIR(it) }.toTypedArray()
 
         val p = PointerPointer<LLVMValueRef>(*args)
-        val name = if(node.resolvedType!!.isPrimitive(PrimitiveTypeKind.VOID)){
+        val name = if (node.resolvedType!!.canonical.isPrimitive(PrimitiveTypeKind.VOID)) {
             ""
         } else getUniqueName("call")
         return LLVMBuildCall2(builder, convertType(funcDecl.signatureType), func, p, args.size, name)
@@ -379,31 +435,33 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
             val func = LLVMAddFunction(module, decl.name, funcType)
 
-            val entryBlock = LLVMAppendBasicBlockInContext(context, func, getUniqueName("entry"))
-            LLVMPositionBuilderAtEnd(builder, entryBlock)
-            currentFn = func;
+            if (decl.definitionNode != null) {
+                val entryBlock = LLVMAppendBasicBlockInContext(context, func, getUniqueName("entry"))
+                LLVMPositionBuilderAtEnd(builder, entryBlock)
+                currentFn = func;
 
-            for (i in decl.params.indices) {
-                val paramAST = ((decl.astNode as FunctionDeclaratorNode).type as FunctionTypeNode).params[i].declarator as VariableDeclaratorNode
-                val llvmParam = LLVMGetParam(func, i)
-                val alloca = generateIR(paramAST)
-                LLVMBuildStore(builder, llvmParam, alloca)
-            }
+                for (i in decl.params.indices) {
+                    val paramAST = ((decl.astNode as FunctionDeclaratorNode).type as FunctionTypeNode).params[i].declarator as VariableDeclaratorNode
+                    val llvmParam = LLVMGetParam(func, i)
+                    val alloca = generateIR(paramAST)
+                    LLVMBuildStore(builder, llvmParam, alloca)
+                }
 
 
-            (decl.definitionNode as FunctionDefinitionNode).body.statements.forEach { generateIR(it) }
-            val currentBlock = LLVMGetInsertBlock(builder)
+                (decl.definitionNode as FunctionDefinitionNode).body.statements.forEach { generateIR(it) }
+                val currentBlock = LLVMGetInsertBlock(builder)
 
-            val hasTerminator = LLVMGetBasicBlockTerminator(currentBlock) != null
+                val hasTerminator = LLVMGetBasicBlockTerminator(currentBlock) != null
 
-            if (!hasTerminator) {
-                if (decl.returnType.isPrimitive(PrimitiveTypeKind.VOID)) {
-                    LLVMBuildRetVoid(builder)
-                } else if (decl.name == "main") {
-                    val zero = LLVMConstInt(LLVMInt32TypeInContext(context), 0L, 0)
-                    LLVMBuildRet(builder, zero)
-                } else {
-                    LLVMBuildUnreachable(builder)
+                if (!hasTerminator) {
+                    if (decl.returnType.isPrimitive(PrimitiveTypeKind.VOID)) {
+                        LLVMBuildRetVoid(builder)
+                    } else if (decl.name == "main") {
+                        val zero = LLVMConstInt(LLVMInt32TypeInContext(context), 0L, 0)
+                        LLVMBuildRet(builder, zero)
+                    } else {
+                        LLVMBuildUnreachable(builder)
+                    }
                 }
             }
             currentFn = null
@@ -477,6 +535,10 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
                     LLVMFunctionType(convertType(type.returnType), p, paramArr.size, 0)
                 }
 
+                is SemanticType.TypeDef -> {
+                    convertType(type.canonical)
+                }
+
                 else -> throw IllegalArgumentException("Unsupported type: " + type)
             }
         }
@@ -484,9 +546,9 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
     fun visitUnaryExpr(expr: UnaryExpressionNode): LLVMValueRef {
         val operand = generateIR(expr.operand)!!
-        val opType = expr.operand.resolvedType!!;
+        val opType = expr.operand.resolvedType!!.canonical;
         val name = getUniqueName("unop")
-        if (!opType.isPrimitive()) TODO("Only primitive unary ops are supported")
+        if (!opType.isPrimitive()) TODO("Only primitive unary ops are supported ${opType.toDisplayString()}")
         val isFloat = opType.kind.isFloat;
 
         return when (expr.operator) {
@@ -511,8 +573,8 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
     }
 
     fun visitBinaryExpr(binaryExpr: BinaryExpressionNode): LLVMValueRef {
-        val leftType = binaryExpr.left.resolvedType!!;
-        val rightType = binaryExpr.right.resolvedType!!;
+        val leftType = binaryExpr.left.resolvedType!!.canonical;
+        val rightType = binaryExpr.right.resolvedType!!.canonical;
         val leftIR = generateIR(binaryExpr.left)!!
         val rightIR = generateIR(binaryExpr.right)!!
         val name = getUniqueName("binop")
@@ -561,6 +623,57 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
                 } else throw IllegalArgumentException("Unsupported operator: " + binaryExpr.operator)
             }
 
+            Operator.LESS -> {
+                if (leftType.isPrimitive() && rightType.isPrimitive()) {
+                    if (leftType.kind.isFloat) LLVMBuildFCmp(builder, LLVMRealOLT, leftIR, rightIR, name)
+                    else if (leftType.kind.isUnsigned) {
+                        LLVMBuildICmp(builder, LLVMIntULT, leftIR, rightIR, name)
+                    } else {
+                        LLVMBuildICmp(builder, LLVMIntSLT, leftIR, rightIR, name)
+                    }
+                } else throw IllegalArgumentException("Unsupported operator: " + binaryExpr.operator)
+            }
+
+            Operator.GREATER -> {
+                if (leftType.isPrimitive() && rightType.isPrimitive()) {
+                    if (leftType.kind.isFloat) LLVMBuildFCmp(builder, LLVMRealOGT, leftIR, rightIR, name)
+                    else if (leftType.kind.isUnsigned) {
+                        LLVMBuildICmp(builder, LLVMIntUGT, leftIR, rightIR, name)
+                    } else {
+                        LLVMBuildICmp(builder, LLVMIntSGT, leftIR, rightIR, name)
+                    }
+                } else throw IllegalArgumentException("Unsupported operator: " + binaryExpr.operator)
+            }
+
+            Operator.LESS_EQUAL -> {
+                if (leftType.isPrimitive() && rightType.isPrimitive()) {
+                    if (leftType.kind.isFloat) LLVMBuildFCmp(builder, LLVMRealOLE, leftIR, rightIR, name)
+                    else if (leftType.kind.isUnsigned) {
+                        LLVMBuildICmp(builder, LLVMIntULE, leftIR, rightIR, name)
+                    } else {
+                        LLVMBuildICmp(builder, LLVMIntSLE, leftIR, rightIR, name)
+                    }
+                } else throw IllegalArgumentException("Unsupported operator: " + binaryExpr.operator)
+            }
+
+            Operator.GREATER_EQUAL -> {
+                if (leftType.isPrimitive() && rightType.isPrimitive()) {
+                    if (leftType.kind.isFloat) LLVMBuildFCmp(builder, LLVMRealOGE, leftIR, rightIR, name)
+                    else if (leftType.kind.isUnsigned) {
+                        LLVMBuildICmp(builder, LLVMIntUGE, leftIR, rightIR, name)
+                    } else {
+                        LLVMBuildICmp(builder, LLVMIntSGE, leftIR, rightIR, name)
+                    }
+                } else throw IllegalArgumentException("Unsupported operator: " + binaryExpr.operator)
+            }
+
+
+            Operator.ASSIGN -> {
+                val leftIR = generateIR(binaryExpr.left)!!
+                val rightIR = generateIR(binaryExpr.right)!!
+                LLVMBuildStore(builder, rightIR, leftIR)
+            }
+
             else -> throw IllegalArgumentException("Unsupported operator: " + binaryExpr.operator)
         }
     }
@@ -573,75 +686,6 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         return LLVMBuildRet(builder, generateIR(node.expression!!))
     }
 
-    fun emitX86ObjectFile(module: LLVMModuleRef, outputFileName: String) {
-        // 1. Инициализация таргетов
-        // 2. Использование системного Triple (чтобы избежать конфликтов с ОС)
-        val triplePtr = LLVMGetDefaultTargetTriple()
-        val targetTriple = triplePtr.string
-
-        val targetPtr = PointerPointer<LLVMTargetRef>(1)
-        val errorPtr = BytePointer()
-
-        // 3. Получение Target
-        if (LLVMGetTargetFromTriple(targetTriple, targetPtr, errorPtr) != 0) {
-//            val msg = errorPtr.get(BytePointer::class.java).string
-//            LLVMDisposeMessage(errorPtr.get(BytePointer::class.java))
-            throw RuntimeException("Error getting target")
-        }
-
-        val target = LLVMTargetRef(targetPtr.get())
-
-        // 4. Создание TargetMachine
-        val targetMachine = LLVMCreateTargetMachine(
-            target,
-            targetTriple,
-            "generic",
-            "",
-            LLVMCodeGenLevelDefault,
-            LLVMRelocPIC,
-            LLVMCodeModelDefault
-        ) ?: throw RuntimeException("Failed to create TargetMachine")
-
-        // 5. УСТАНОВКА TRIPLE И DATA LAYOUT В МОДУЛЬ (Убирает segfault!)
-        val dataLayout = LLVMCreateTargetDataLayout(targetMachine)
-        LLVMSetTarget(module, targetTriple)
-        LLVMSetModuleDataLayout(module, dataLayout)
-        LLVMDisposeTargetData(dataLayout)
-
-        // 6. ПРОВЕРКА МОДУЛЯ (Распечатает ошибку IR, если она есть)
-        val verifyErr = PointerPointer<BytePointer>(1)
-        LLVMDumpModule(module)
-
-        if (LLVMVerifyModule(module, LLVMPrintMessageAction, verifyErr) != 0) {
-            throw RuntimeException("LLVM IR is invalid! Check console output.")
-        }
-
-        // 7. Запись Object File (.o)
-        val outputFile = BytePointer(outputFileName)
-        val emitErrorPtr = PointerPointer<BytePointer>(1)
-
-
-        val result = LLVMTargetMachineEmitToFile(
-            targetMachine,
-            module,
-            outputFile,
-            LLVMObjectFile,
-            emitErrorPtr
-        )
-
-        if (result != 0) {
-            val msgPtr = emitErrorPtr.get(BytePointer::class.java)
-            val msg = msgPtr.string
-            LLVMDisposeMessage(msgPtr)
-            throw RuntimeException("Error emitting object file: $msg")
-        }
-
-        println("Файл $outputFileName успешно сгенерирован!")
-
-        // Очистка
-        LLVMDisposeTargetMachine(targetMachine)
-        LLVMDisposeMessage(triplePtr)
-    }
 
     fun String.toDirectByteBuffer(): ByteBuffer {
         val bytes = this.toByteArray(StandardCharsets.UTF_8)

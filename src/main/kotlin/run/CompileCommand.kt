@@ -12,13 +12,10 @@ import org.derilh.exceptions.ProblemLevel
 import org.derilh.ir.LLVMIRBuilder
 import org.derilh.lexer.Lexer
 import org.derilh.util.Printer
-import org.derilh.util.printTree
-import java.io.PrintStream
 import java.nio.file.Files
-import kotlin.io.path.absolutePathString
 
-class SemaCommand : CliktCommand(
-    name = "sema",
+class CompileCommand : CliktCommand(
+    name = "compile",
     help = "Run ursac compiler"
 ) {
     private val inputPath by option("-i", "--input", help = "Source file path")
@@ -27,9 +24,11 @@ class SemaCommand : CliktCommand(
 
     private val printTerminal by option("--terminal", help = "Prints ast to terminal").flag()
     private val traceErrors by option("--traceErrors", help = "Adds stack trace to errors").flag()
+    private val emitIR by option("--emit-IR", help = "Adds stack trace to errors").flag()
 
     private val output by option("-o", "--output", help = "Source file path")
-        .path(mustExist = false, canBeFile = true, mustBeWritable = true)
+        .path(mustExist = false, canBeFile = true)
+
 
     private val target by option("-t", "--target", help = "Target architecture").choice(*TargetFactory.getSupportedTargets()).required()
 
@@ -55,17 +54,24 @@ class SemaCommand : CliktCommand(
             printer.printSuccess()
         }
 
+        val module = LLVMIRBuilder(options).generate(result.second.ast);
         if (output != null) {
-            System.setOut(PrintStream(output!!.toFile()))
-            result.second.ast.printTree();
-            System.setOut(System.out)
+            if(emitIR) {
+                module.emitIRTo(output!!.toAbsolutePath().toString())
+            } else {
+                module.compileTo(output!!.toAbsolutePath().toString())
+            }
         }
 
         if (printTerminal) {
-            result.second.ast.printTree();
+            if(emitIR) {
+                module.emitIRTo("/proc/self/fd/1")
+            } else {
+                module.compileTo("/proc/self/fd/1")
+            }
         }
 
-        if (output == null && !printTerminal) error("No output method specified. Use -o or to to specify an output file or terminal.")
+        if (output == null && !printTerminal) error("No output method specified. Use -o or -t to specify an output file or terminal.")
 
     }
 }

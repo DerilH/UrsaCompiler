@@ -27,6 +27,9 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
 
         if (leftType == null || rightType == null) {
             return node; }
+        val canonLeft = leftType.canonical
+        val canonRight = ctx.types.decay(rightType.canonical)
+
         if (!node.operator.isBinary) {
             ctx.error("Operator '${node.operator}' is not a binary operator", node)
             return node;
@@ -38,16 +41,16 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
         val leftInfo = ExpressionInfo(leftType, leftVc, ctx.isNullPointerConstant(node.left));
         val rightInfo = ExpressionInfo(rightType, rightVc, ctx.isNullPointerConstant(node.right));
 
-        if (leftType is SemanticType.Array && node.operator.isAssignment()) {
+        if (canonLeft is SemanticType.Array && node.operator.isAssignment()) {
             ctx.error("Cannot assign to an array type $leftType", node)
             return node;
         }
 
         val result = when {
-            leftType.isPrimitive() && rightType.isPrimitive() -> resolvePrimitivesOp(leftType, rightType, node, ctx);
-            (leftType.isPointer() || rightType.isPointer()) && (rightType.isPrimitive() || leftType.isPrimitive()) -> resolvePointerPrimitiveOp(leftType, rightType, node, ctx);
-            leftType.isPointer() && rightType.isPointer() -> resolvePointersOp(leftType, rightType, node, ctx);
-            rightType.isDeclared() || leftType.isDeclared() -> {
+            canonLeft.isPrimitive() && canonRight.isPrimitive() -> resolvePrimitivesOp(canonLeft as SemanticType.Primitive, canonRight as SemanticType.Primitive, node, ctx);
+            (canonLeft.isPointer() || canonRight.isPointer()) && (canonRight.isPrimitive() || canonLeft.isPrimitive()) -> resolvePointerPrimitiveOp(canonLeft, canonRight, node, ctx);
+            canonLeft.isPointer() && canonRight.isPointer() -> resolvePointersOp(canonLeft as SemanticType.Pointer, canonRight as SemanticType.Pointer, node, ctx);
+            canonRight.isDeclared() || canonLeft.isDeclared() -> {
                 val overloads = ctx.resolveOpOverloads(ctx.scope, node.operator, true, leftInfo, rightInfo)
                 if (overloads.size > 1) OpResult.failure("Ambiguous operator overload for type ${leftType} and ${rightType}", node)
                 else if (overloads.isEmpty()) OpResult.failure("No operator overload for type ${leftType} and ${rightType}", node)

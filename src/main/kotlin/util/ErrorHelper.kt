@@ -52,6 +52,7 @@ class ErrorHelper {
             is DeclSymbol.ClassDecl -> "class ${symbol.name}"
             is DeclSymbol.NamespaceDecl -> "namespace ${symbol.name}"
             is DeclSymbol.FunctionOverloadSet -> "<function_overload_set>"
+            is DeclSymbol.TypedefDecl -> "typedef ${symbol.name}"
         }
         fun getStackTrace(options: Options): Array<StackTraceElement>? {
             return if(options.traceErrors) {

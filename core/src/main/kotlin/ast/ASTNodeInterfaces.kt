@@ -199,6 +199,9 @@ interface IFunctionDeclaratorNode : INamedDeclaratorNode {
     val defaultParamCount: Int
 }
 
+interface ITypeDefDeclaratorNode : INamedDeclaratorNode {
+}
+
 interface IAbstractDeclaratorNode : IDeclaratorNode {
     val initializer: IExpressionNode?
 }
@@ -249,7 +252,7 @@ interface IForStatementNode : IStatementNode {
     val initializer: List<IASTNode>
     val condition: IExpressionNode
     val increment: List<IExpressionNode>
-    val body: IStatementNode
+    val body: IStatementNode?
 }
 
 interface IMemberAccessExpressionNode : IBinaryExpressionNode;

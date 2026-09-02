@@ -2,13 +2,14 @@ package org.derilh.run
 
 import com.sun.management.ThreadMXBean
 import org.derilh.PreProcessor
+import org.derilh.ast.EmptyStatementNode
 import org.derilh.ast.ParseResult
 import org.derilh.ast.Parser
 import org.derilh.core.Options
+import org.derilh.core.target.TargetFactory
 import org.derilh.lexer.Lexer
 import org.derilh.semantic.AnalyzeResult
 import org.derilh.semantic.analyzer.SemanticAnalyzer
-import org.derilh.target.X86_64LinuxTargetInfo
 import java.lang.management.ManagementFactory
 import java.nio.file.Path
 import kotlin.concurrent.atomics.AtomicBoolean
@@ -17,7 +18,7 @@ import kotlin.concurrent.atomics.ExperimentalAtomicApi
 class RunHelper {
     companion object{
 
-        fun analyze(code: String, path:Path, options: Options = Options("x86_64Linux", false, false)): Pair<ParseResult, AnalyzeResult> {
+        fun analyze(code: String, path:Path, options: Options = Options(TargetFactory.createTarget("x86_64Linux"), false)): Pair<ParseResult, AnalyzeResult> {
             withMemoryWatchdog(1024) {
                 val preProcessor = PreProcessor();
                 val code = preProcessor.preProcess(code, path)

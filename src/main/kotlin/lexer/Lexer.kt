@@ -462,6 +462,9 @@ class Lexer {
         return tokens
     }
 
+    private fun tryReadPreprocessorToken() {
+
+    }
 
     private fun matchLiteralHeader(i: Int): LiteralHeader? {
         val c0 = input.getOrNull(i) ?: return null

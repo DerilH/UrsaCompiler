@@ -17,8 +17,8 @@ class ArrayAccessAnalyzer : NodeAnalyzer<ArrayAccessNode> {
         var arrayExpr = ctx.analyze(node.operand, ctx.scope) as ExpressionNode
         var indexExpr = ctx.analyze(node.index, ctx.scope) as ExpressionNode
 
-        var arrayType = arrayExpr.resolvedType ?: return node;
-        var indexType = indexExpr.resolvedType ?: return node;
+        var arrayType = arrayExpr.resolvedType?.canonical ?: return node;
+        var indexType = indexExpr.resolvedType?.canonical ?: return node;
 
         // 2. Обработка C++ симметрии: если написали 0[ptr], меняем операнды местами
         if (!isPointerOrArray(arrayType) && isPointerOrArray(indexType)) {

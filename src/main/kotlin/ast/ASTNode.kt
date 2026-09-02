@@ -115,7 +115,6 @@ class PrimitiveTypeNode(
         return "${qualifiersPrefix()}${kind}"
     }
 }
-
 class DeclaredTypeNode(override val typeName: IdentifierNode, isConst: Boolean, isVolatile: Boolean, override val location: SourceLocation?) : TypeNode(
     isConst,
     isVolatile
@@ -513,7 +512,7 @@ data class FunctionDefinitionNode(
 
 
 abstract class ExpressionNode(override var valueCategory: ValueCategory = ValueCategory.PRVALUE) : ASTNode, IExpressionNode {
-    var resolvedType: SemanticType = SemanticType.Error;
+    var resolvedType: SemanticType? = SemanticType.Error;
     var evaluated: Any? = null
 
     override val children: List<ASTNode> get() = emptyList()
@@ -665,6 +664,11 @@ class InitializerListExpressionNode(
     override fun toString(): String = "InitializerListExpressionNode"
 }
 
+class TypeDefStatementNode(val typeSpecifier: TypeNode, val declarators: List<DeclaratorNode>, location: SourceLocation?) : DeclarationNode(location) {
+    override val children: List<ASTNode> get() = declarators
+    override fun toString(): String = "TypeDefStatementNode"
+}
+
 class DeclarationSequenceNode(
     override val typeSpecifier: TypeNode,
     override val declarations: List<DeclaratorNode>, location: SourceLocation?
@@ -701,6 +705,10 @@ sealed class NamedDeclaratorNode(override val id: IdentifierNode, type: TypeNode
 }
 
 class AbstractDeclaratorNode(type: TypeNode, override val initializer: ExpressionNode?, location: SourceLocation?) : DeclaratorNode(type, location), IAbstractDeclaratorNode
+
+class TypeDefDeclaratorNode(id: IdentifierNode, type: TypeNode, location: SourceLocation?) : NamedDeclaratorNode(id, type, location), ITypeDefDeclaratorNode {
+    lateinit var decl: DeclSymbol.TypedefDecl;
+}
 
 sealed class DeclaratorNode(override var type: TypeNode, override val location: SourceLocation?) : ASTNode, IDeclaratorNode {
     override val children: List<ASTNode>
@@ -781,10 +789,11 @@ class ForStatementNode(
     override var initializer: List<ASTNode>,
     override var condition: ExpressionNode,
     override var increment: List<ExpressionNode>,
-    override var body: StatementNode, location: SourceLocation?
+    override var body: StatementNode?, location: SourceLocation?
 ) : StatementNode(location), IForStatementNode, IReturnableNode {
-    override val children: List<ASTNode> get() = initializer + condition + increment + body
+    override val children: List<ASTNode> get() = initializer + condition + increment + listOfNotNull(body)
     override var returnStatements: List<ReturnStatementNode>? = null
+    lateinit var scope: Scope;
 }
 
 
@@ -872,7 +881,9 @@ class AccessSpecifierNode(
 }
 
 data class RootNode(
-    override val declarations: List<ASTNode>, override val location: SourceLocation = SourceLocation.EXPORTED
+    val name: String,
+    override val declarations: List<ASTNode>,
+    override val location: SourceLocation = SourceLocation.EXPORTED
 ) : ASTNode, IRootNode {
     lateinit var scope: GlobalScope;
     override val children: List<ASTNode> get() = declarations

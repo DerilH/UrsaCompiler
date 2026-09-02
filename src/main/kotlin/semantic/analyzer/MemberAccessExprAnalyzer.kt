@@ -19,19 +19,21 @@ class MemberAccessExprAnalyzer : NodeAnalyzer<MemberAccessExpressionNode> {
         node.left = ctx.analyze(node.left, ctx.scope) as ExpressionNode
 
         var leftType = node.left.resolvedType ?: return node;
+        var canonLeft = leftType.canonical
         val right = node.right;
 
         when (node.operator) {
             Operator.DOT, Operator.ARROW -> {
-                if (!leftType.isDeclared()) {
+                if (!canonLeft.isDeclared()) {
                     if (node.operator == Operator.DOT) {
                         ctx.error("Cannot access member of non-class type", node)
                         return node;
-                    } else if ((!leftType.isPointer() || !leftType.pointee.isDeclared())) {
+                    } else if ((!canonLeft.isPointer() || !canonLeft.pointee.canonical.isDeclared())) {
                         ctx.error("Cannot access member of non-pointer or non-class type", node)
                         return node;
                     } else {
-                        leftType = leftType.pointee;
+                        leftType = canonLeft.pointee;
+                        canonLeft = leftType.canonical
                     }
                 }
 
@@ -46,7 +48,7 @@ class MemberAccessExprAnalyzer : NodeAnalyzer<MemberAccessExpressionNode> {
                     return node;
                 }
 
-                val symbol = leftType.decl.scope.lookupLocal(id.name, false).getOrElse {ctx.error(it,node); return node;}
+                val symbol = (canonLeft as SemanticType.Declared).decl.scope.lookupLocal(id.name, false).getOrElse {ctx.error(it,node); return node;}
                 right.decl = symbol;
                 if(symbol is DeclSymbol.FunctionOverloadSet) {
                     if(ctx.idContext != IdContext.CALLEE) {
@@ -85,7 +87,7 @@ class MemberAccessExprAnalyzer : NodeAnalyzer<MemberAccessExpressionNode> {
         baseValueCategory: ValueCategory,
         fieldSymbol: DeclSymbol.VariableDecl
     ): ValueCategory {
-        val fieldType = fieldSymbol.type
+        val fieldType = fieldSymbol.type.canonical
         if (fieldType is SemanticType.Reference) {
             return ValueCategory.LVALUE
         }

@@ -5,7 +5,6 @@ import org.derilh.ast.IntLiteralNode
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.Radix
 import org.derilh.exceptions.SemanticProblem
-import org.derilh.target.TargetInfo
 import javax.swing.ProgressMonitor
 
 class IntLiteralAnalyzer : NodeAnalyzer<IntLiteralNode> {

@@ -80,6 +80,15 @@ open class Scope(
                 ordinaryMap[name] = symbol
             }
 
+            is DeclSymbol.TypedefDecl -> {
+                val existingOrdinary = ordinaryMap[name]
+                if (existingOrdinary != null) {
+                    return ErrorHelper.alreadyDefined(symbol, existingOrdinary)
+                }
+
+                ordinaryMap[name] = symbol
+            }
+
             is DeclSymbol.NamespaceDecl -> {
                 val existingTag = tagMap[name]
                 if (existingTag != null) {

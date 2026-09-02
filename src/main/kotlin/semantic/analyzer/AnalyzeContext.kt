@@ -15,7 +15,7 @@ import org.derilh.semantic.TypeContext
 import org.derilh.semantic.analyzer.ConversionSequence
 import org.derilh.semantic.analyzer.IdContext
 import org.derilh.semantic.analyzer.ViableCandidate
-import org.derilh.target.TargetInfo
+import org.derilh.core.target.TargetInfo
 import java.math.BigInteger
 
 interface AnalyzeContext {

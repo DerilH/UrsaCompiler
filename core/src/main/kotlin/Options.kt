@@ -1,3 +1,5 @@
 package org.derilh.core
 
-data class Options(val target: String, val printAst: Boolean, val traceErrors: Boolean);
+import org.derilh.core.target.TargetInfo
+
+data class Options(val target: TargetInfo, val traceErrors: Boolean);

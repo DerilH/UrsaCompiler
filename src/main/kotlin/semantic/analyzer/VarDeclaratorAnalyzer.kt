@@ -16,13 +16,13 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
             node.initializer = ctx.analyze(init, ctx.scope) as ExpressionNode
             node.initializer!!.resolvedType;
         } else null
+        val canonInit = initType?.canonical
         init = node.initializer
 
+        var varType = ctx.resolveType(node.type, ctx.scope, null).getOrElse { ctx.error(it, node); return node }
 
-        var varType = ctx.resolveType(node.type, ctx.scope, null).getOrElse { ctx.error(it); return node }
-
-        if (initType is SemanticType.OverloadSet) {
-            val resolvedInfo = resolveOverloadSetAddress(overloadSet = initType, targetType = varType, initializerNode = node.initializer!!, ctx = ctx)
+        if (canonInit is SemanticType.OverloadSet) {
+            val resolvedInfo = resolveOverloadSetAddress(overloadSet = canonInit, targetType = varType, initializerNode = node.initializer!!, ctx = ctx)
 
             initType = resolvedInfo.type
             node.initializer!!.resolvedType = resolvedInfo.type
@@ -43,14 +43,14 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
                 ctx.error("Declaration with 'auto' requires an initializer", node)
             } else ctx.error("Cannot initialize 'auto' with an expression", init)
             return node;
-        } else if (varType !== initType && initType != null) {
+        } else if (!(varType isSame initType) && initType != null) {
             val seq = ctx.findImplicitCastSeq(initType, init!!.valueCategory!!, varType, ValueCategory.PRVALUE, ctx.isNullPointerConstant(init))
             if (seq.size == 1) {
                 node.initializer = ctx.buildConversionSeq(init, seq.first())
             } else if (seq.size > 1) {
                 ctx.error("Ambiguous cast", init)
             } else {
-                ctx.error("Cannot initialize variable ${node.id.toDisplayString()} of type ${node.type.resolvedType} with ${init.resolvedType}", init)
+                ctx.error("Cannot initialize variable ${node.id.toDisplayString()} of type ${varType.toDisplayString()} with ${initType.toDisplayString()}", init)
             }
         }
 
@@ -63,8 +63,9 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
         initializerNode: ASTNode,
         ctx: AnalyzeContext
     ): ExpressionInfo {
+        val canonTarget = targetType.canonical
 
-        if (targetType is SemanticType.Auto) {
+        if (canonTarget is SemanticType.Auto) {
             if (overloadSet.overloads.size == 1) {
                 val singleFunc = overloadSet.overloads.first()
                 val funcPtrType = ctx.types.getPointer(singleFunc.signatureType)
@@ -77,10 +78,10 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
             }
         }
 
-        val unrefTarget = ctx.types.removeRef(targetType)
+        val unrefTarget = ctx.types.removeRef(canonTarget).canonical
 
         val targetFuncType = when (unrefTarget) {
-            is SemanticType.Pointer -> unrefTarget.pointee as? SemanticType.Function
+            is SemanticType.Pointer -> unrefTarget.pointee.canonical as? SemanticType.Function
             is SemanticType.Function -> unrefTarget
             else -> null
         }
@@ -91,20 +92,20 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
         }
 
         val matchingDecls = overloadSet.overloads.filter { decl ->
-            decl.signatureType == targetFuncType
+            decl.signatureType isSame targetFuncType
         }
 
         return when (matchingDecls.size) {
             1 -> {
                 val selectedFunc = matchingDecls.first()
 
-                val finalType = if (unrefTarget is SemanticType.Function && targetType is SemanticType.Reference) {
+                val finalType = if (unrefTarget is SemanticType.Function && canonTarget is SemanticType.Reference) {
                     selectedFunc.signatureType
                 } else {
                     ctx.types.getPointer(selectedFunc.signatureType)
                 }
 
-                val valueCategory = if (finalType is SemanticType.Function) ValueCategory.LVALUE else ValueCategory.PRVALUE
+                val valueCategory = if (finalType.canonical is SemanticType.Function) ValueCategory.LVALUE else ValueCategory.PRVALUE
 
                 (initializerNode as? IdExpressionNode)?.decl = selectedFunc
 

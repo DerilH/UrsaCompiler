@@ -16,6 +16,7 @@ import org.derilh.analyzer.CompoundStatementAnalyzer
 import org.derilh.analyzer.DeclSymbol
 import org.derilh.analyzer.DeclarationSeqAnalyzer
 import org.derilh.analyzer.FloatLiteralAnalyzer
+import org.derilh.analyzer.ForStmtAnalyzer
 import org.derilh.analyzer.GlobalScope
 import org.derilh.analyzer.IfStmtAnalyzer
 import org.derilh.analyzer.IntLiteralAnalyzer
@@ -29,6 +30,8 @@ import org.derilh.analyzer.Scope
 import org.derilh.analyzer.StringConcatAnalyzer
 import org.derilh.analyzer.StringLiteralAnalyzer
 import org.derilh.analyzer.TypeCastExprAnalyzer
+import org.derilh.analyzer.TypeDefDeclaratorAnalyzer
+import org.derilh.analyzer.TypeDefStmtAnalyzer
 import org.derilh.analyzer.UnaryExprAnalyzer
 import org.derilh.analyzer.VarDeclaratorAnalyzer
 import org.derilh.analyzer.WhileStmtAnalyzer
@@ -83,7 +86,10 @@ import org.derilh.ast.ParameterNode
 import org.derilh.ast.RecoveryExpressionNode
 import org.derilh.ast.RecoveryStatementNode
 import org.derilh.ast.ErrorTypeNode
+import org.derilh.ast.ForStatementNode
 import org.derilh.ast.ReturnStatementNode
+import org.derilh.ast.TypeDefDeclaratorNode
+import org.derilh.ast.TypeDefStatementNode
 import org.derilh.ast.VariableDeclaratorNode
 import org.derilh.ast.WhileStatementNode
 import org.derilh.core.ConversionKind
@@ -104,8 +110,9 @@ import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
 import org.derilh.semantic.TypeContext
 import org.derilh.semantic.isFunctionPointer
-import org.derilh.target.TargetInfo
-import org.derilh.target.X86_64LinuxTargetInfo
+import org.derilh.semantic.isPrimitive
+import org.derilh.core.target.TargetInfo
+import org.derilh.core.target.X86_64LinuxTargetInfo
 import org.derilh.util.ErrorHelper
 import org.derilh.util.ErrorHelper.Companion.getStackTrace
 import java.math.BigInteger
@@ -171,6 +178,9 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         AsmStatementNode::class to AsmStmtAnalyzer(),
         AsmOperandNode::class to AsmOperandAnalyzer(),
         ArrayAccessNode::class to ArrayAccessAnalyzer(),
+        TypeDefStatementNode::class to TypeDefStmtAnalyzer(),
+        TypeDefDeclaratorNode::class to TypeDefDeclaratorAnalyzer(),
+        ForStatementNode::class to ForStmtAnalyzer(),
 
         RecoveryExpressionNode::class to RecoveryAnalyzer(),
         RecoveryStatementNode::class to RecoveryAnalyzer()
@@ -184,7 +194,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
             fun add(name: String, returnType: SemanticType, vararg params: SemanticType) {
                 val t = types.getFunction(returnType, params.toList(), FunctionQualifiers())
-                 scope.define(DeclSymbol.builtinOpFunction("$OPERATOR_FUN_PREFIX$name", t))
+                scope.define(DeclSymbol.builtinOpFunction("$OPERATOR_FUN_PREFIX$name", t))
             }
 
             fun add(op: Operator, returnType: SemanticType, vararg params: SemanticType) {
@@ -273,10 +283,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     }
 
     init {
-        target = when (options.target) {
-            "x86_64Linux" -> X86_64LinuxTargetInfo;
-            else -> throw IllegalArgumentException("Unknown target: ${options.target}")
-        }
+        target = options.target;
         types = TypeContext(target)
     }
 
@@ -346,13 +353,13 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         return (analyzer ?: RecoveryAnalyzer()) as NodeAnalyzer<T>;
     }
 
-    override fun isSameType(first: SemanticType, second: SemanticType): Boolean = first == second
+    override fun isSameType(first: SemanticType, second: SemanticType): Boolean = first isSame second
     override fun isSameOverloadFun(first: SemanticType.Function, second: SemanticType.Function): Boolean {
-        if (first === second) return true
+        if (first isSame second) return true
         if (first.params.size != second.params.size) return false
 
         for (i in first.params.indices) {
-            if (first.params[i] !== second.params[i]) return false
+            if (!(first.params[i] isSame second.params[i])) return false
         }
 
         if (first.qualifiers.isConst != second.qualifiers.isConst) return false
@@ -527,12 +534,12 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             }
 
             is DeclaredTypeNode -> {
-                val decl = resolveSymbols(typeNode.typeName, currentScope, true).getOrElse { return it; }
-                if (decl !is DeclSymbol.ClassDecl) {
-                    return OpResult.failure("Invalid type name: ${typeNode.typeName.name}", typeNode.typeName)
-                }
-
-                types.getDeclared(classDecl = decl, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
+                val decl = resolveSymbols(typeNode.typeName, currentScope, true).getOrElse { error(it, typeNode); return it; }
+                if (decl is DeclSymbol.ClassDecl) {
+                    types.getDeclared(classDecl = decl, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
+                } else if (decl is DeclSymbol.TypedefDecl) {
+                    types.getTypeDef(decl.name, decl.canonicalType, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
+                } else return OpResult.failure("Invalid type name: ${typeNode.typeName.name}", typeNode.typeName)
             }
 
             is FunctionTypeNode -> {
@@ -755,13 +762,14 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         toVC: ValueCategory,
         isNullPointerConstant: Boolean
     ): Collection<ConversionSequence> {
+        val canonTo = toType.canonical
 
-        when (toType) {
+        when (canonTo) {
             is SemanticType.Reference -> {
-                val underlying = toType.pointee
+                val underlying = canonTo.pointee
 
-                if (!toType.isConst) {
-                    if (fromVC == ValueCategory.LVALUE && types.removeRef(fromType) === underlying) {
+                if (!canonTo.isConst) {
+                    if (fromVC == ValueCategory.LVALUE && types.removeRef(fromType).isSame(underlying)) {
                         val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
                                 ?: IdentityConversionSequence(underlying)
                         seq.bindsToTemporary = false
@@ -769,7 +777,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                     }
                     return emptySet()
                 } else {
-                    if (fromVC == ValueCategory.LVALUE && types.removeRef(fromType) === underlying) {
+                    if (fromVC == ValueCategory.LVALUE && types.removeRef(fromType).isSame(underlying)) {
                         val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
                                 ?: IdentityConversionSequence(underlying)
                         seq.bindsToTemporary = false
@@ -798,13 +806,13 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             }
 
             is SemanticType.RValueReference -> {
-                val underlying = toType.pointee
+                val underlying = canonTo.pointee
 
                 if (fromVC == ValueCategory.LVALUE) {
                     return emptySet()
                 }
 
-                if (fromVC == ValueCategory.XVALUE && types.removeRef(fromType) == underlying) {
+                if (fromVC == ValueCategory.XVALUE && types.removeRef(fromType).isSame(underlying)) {
                     val seq = findStdConversionSeq(fromType, fromVC, underlying, fromVC, isNullPointerConstant)
                             ?: IdentityConversionSequence(underlying)
                     seq.bindsToTemporary = false
@@ -882,10 +890,13 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
             }
         }
 
-        return when (fromType) {
-            !is SemanticType.Declared if toType is SemanticType.Declared -> findCtorConv(toType)
-            is SemanticType.Declared if toType !is SemanticType.Declared -> findOperatorConv(fromType)
-            is SemanticType.Declared if toType is SemanticType.Declared -> findCtorConv(toType) + findOperatorConv(fromType)
+        val canonFrom = fromType.canonical
+        val canonTo = toType.canonical
+
+        return when (canonFrom) {
+            !is SemanticType.Declared if canonTo is SemanticType.Declared -> findCtorConv(canonTo)
+            is SemanticType.Declared if canonTo !is SemanticType.Declared -> findOperatorConv(canonFrom)
+            is SemanticType.Declared if canonTo is SemanticType.Declared -> findCtorConv(canonTo) + findOperatorConv(canonFrom)
             else -> emptySet()
         }
     }
@@ -898,64 +909,69 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         toVC: ValueCategory,
         isNullPointerConstant: Boolean
     ): StdConversionSequence? {
-        if (fromType == toType && fromVC == toVC) return StdConversionSequence(emptyList(), toType)
+        val canonFrom = fromType.canonical
+        val canonTo = toType.canonical
+        if (canonFrom.isSame(canonTo) && fromVC == toVC) return StdConversionSequence(emptyList(), toType)
         val isNullPtr =
-            (fromType is SemanticType.Primitive && fromType.kind == PrimitiveTypeKind.NULLPTR) || isNullPointerConstant
+            (canonFrom is SemanticType.Primitive && canonFrom.kind == PrimitiveTypeKind.NULLPTR) || isNullPointerConstant
 
         var currentType = fromType
         var currentVC = fromVC
+        var canonCurrent = currentType.canonical
         val seq = mutableListOf<ConversionStep>()
         when {
-            currentType is SemanticType.Array && toType is SemanticType.Pointer -> {
-                if (currentType.elementType == toType.pointee) {
+            canonCurrent is SemanticType.Array && canonTo is SemanticType.Pointer -> {
+                if (canonCurrent.elementType.isSame(canonTo.pointee)) {
                     if (currentVC == ValueCategory.PRVALUE) {
                         currentVC = ValueCategory.XVALUE
                         seq += ConversionStep(ConversionKind.TEMPORARY_MATERIALIZATION, currentVC, currentType)
-
                     }
-                    currentType = types.decay(currentType)
+                    currentType = types.decay(canonCurrent)
+                    canonCurrent = currentType.canonical
                     currentVC = ValueCategory.PRVALUE
                     seq += ConversionStep(ConversionKind.ARRAY_TO_POINTER, currentVC, currentType)
                 } else return null
             }
 
-            currentType is SemanticType.Function && toType.isFunctionPointer() -> {
-                currentType = types.getPointer(currentType)
+            canonCurrent is SemanticType.Function && canonTo.isFunctionPointer() -> {
+                currentType = types.getPointer(canonCurrent)
+                canonCurrent = currentType.canonical
                 currentVC = ValueCategory.PRVALUE
                 seq += ConversionStep(ConversionKind.FUNCTION_TO_POINTER, currentVC, currentType)
             }
 
             currentVC.isGLValue && toVC == ValueCategory.PRVALUE &&
-                    currentType !is SemanticType.Function && currentType !is SemanticType.Array -> {
-                if (!currentType.isComplete) return null
+                    canonCurrent !is SemanticType.Function && canonCurrent !is SemanticType.Array -> {
+                if (!canonCurrent.isComplete) return null
 
                 currentVC = ValueCategory.PRVALUE
-                currentType = types.removeRef(currentType)
+                currentType = types.dropCV(types.removeRef(canonCurrent))
+                canonCurrent = currentType.canonical
                 seq += ConversionStep(ConversionKind.LVALUE_TO_RVALUE, currentVC, currentType)
             }
         }
 
-        if (currentType == toType && currentVC == toVC) return StdConversionSequence(seq, toType)
+        if (currentType.isSame(toType) && currentVC == toVC) return StdConversionSequence(seq, toType)
 
         var ignoreQualConv = false
-        if (currentType is SemanticType.Primitive && toType is SemanticType.Primitive) {
-            val fromKind = currentType.kind
-            val toKind = toType.kind
+        if (canonCurrent is SemanticType.Primitive && canonTo is SemanticType.Primitive) {
+            val fromKind = canonCurrent.kind
+            val toKind = canonTo.kind
 
             if (fromKind != toKind) {
                 when {
                     fromKind.isInt && toKind.isInt -> {
                         seq += if (toKind == PrimitiveTypeKind.BOOL) {
                             currentType =
-                                types.getPrimitive(PrimitiveTypeKind.BOOL, currentType.isConst, currentType.isVolatile);
+                                types.getPrimitive(PrimitiveTypeKind.BOOL, canonCurrent.isConst, canonCurrent.isVolatile);
                             ConversionStep(ConversionKind.INTEGRAL_TO_BOOLEAN, currentVC, currentType)
                         } else {
                             val promoted = target.promoteIntegralType(fromKind)
                             if (promoted == toKind) {
-                                currentType = types.getPrimitive(promoted, currentType.isConst, currentType.isVolatile);
+                                currentType = types.getPrimitive(promoted, canonCurrent.isConst, canonCurrent.isVolatile);
                                 ConversionStep(ConversionKind.INTEGRAL_PROMOTION, currentVC, currentType)
                             } else {
-                                currentType = types.getPrimitive(toKind, currentType.isConst, currentType.isVolatile);
+                                currentType = types.getPrimitive(toKind, canonCurrent.isConst, canonCurrent.isVolatile);
                                 ConversionStep(ConversionKind.INTEGRAL_CONVERSION, currentVC, currentType)
                             }
                         }
@@ -965,12 +981,12 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                         seq += if (fromKind == PrimitiveTypeKind.FLOAT && toKind == PrimitiveTypeKind.DOUBLE) {
                             currentType = types.getPrimitive(
                                 PrimitiveTypeKind.DOUBLE,
-                                currentType.isConst,
-                                currentType.isVolatile
+                                canonCurrent.isConst,
+                                canonCurrent.isVolatile
                             );
                             ConversionStep(ConversionKind.FLOAT_PROMOTION, currentVC, currentType)
                         } else {
-                            currentType = types.getPrimitive(toKind, currentType.isConst, currentType.isVolatile);
+                            currentType = types.getPrimitive(toKind, canonCurrent.isConst, canonCurrent.isVolatile);
                             ConversionStep(ConversionKind.FLOAT_CONVERSION, currentVC, currentType)
                         }
                     }
@@ -978,54 +994,59 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                     fromKind.isFloat && toKind.isInt -> {
                         seq += if (toKind == PrimitiveTypeKind.BOOL) {
                             currentType =
-                                types.getPrimitive(PrimitiveTypeKind.BOOL, currentType.isConst, currentType.isVolatile);
+                                types.getPrimitive(PrimitiveTypeKind.BOOL, canonCurrent.isConst, canonCurrent.isVolatile);
                             ConversionStep(ConversionKind.FLOAT_TO_BOOLEAN, currentVC, currentType)
                         } else {
-                            currentType = types.getPrimitive(toKind, currentType.isConst, currentType.isVolatile);
+                            currentType = types.getPrimitive(toKind, canonCurrent.isConst, canonCurrent.isVolatile);
                             ConversionStep(ConversionKind.FLOAT_TO_INTEGRAL, currentVC, currentType)
                         }
                     }
 
                     fromKind.isInt && toKind.isFloat -> {
-                        currentType = types.getPrimitive(toKind, currentType.isConst, currentType.isVolatile);
+                        currentType = types.getPrimitive(toKind, canonCurrent.isConst, canonCurrent.isVolatile);
                         seq += ConversionStep(ConversionKind.INTEGRAL_TO_FLOAT, currentVC, currentType)
                     }
 
                     else -> return null
                 }
                 currentType = toType
+                canonCurrent = currentType.canonical
             }
-        } else if (isNullPtr && (toType is SemanticType.Pointer || toType is SemanticType.MemberPointer)) {
+        } else if (isNullPtr && (canonTo is SemanticType.Pointer || canonTo is SemanticType.MemberPointer)) {
             currentType = toType
+            canonCurrent = currentType.canonical
             ignoreQualConv = true
             seq += ConversionStep(ConversionKind.NULL_TO_POINTER, currentVC, currentType)
-        } else if ((currentType is SemanticType.Pointer || currentType is SemanticType.MemberPointer) &&
-            (toType is SemanticType.Primitive && toType.kind == PrimitiveTypeKind.BOOL)
+        } else if ((canonCurrent is SemanticType.Pointer || canonCurrent is SemanticType.MemberPointer) &&
+            (canonTo is SemanticType.Primitive && canonTo.kind == PrimitiveTypeKind.BOOL)
         ) {
-            currentType = types.getPrimitive(PrimitiveTypeKind.BOOL, currentType.isConst, currentType.isVolatile);
+            currentType = types.getPrimitive(PrimitiveTypeKind.BOOL, canonCurrent.isConst, canonCurrent.isVolatile);
+            canonCurrent = currentType.canonical
             seq += ConversionStep(ConversionKind.POINTER_TO_BOOLEAN, currentVC, currentType)
 
-        } else if (currentType is SemanticType.Pointer && toType is SemanticType.Pointer) {
-            if (toType.pointee is SemanticType.Primitive && toType.pointee.kind == PrimitiveTypeKind.VOID) {
-                currentType = types.getPointer(types.void, currentType.isConst, currentType.isVolatile);
+        } else if (canonCurrent is SemanticType.Pointer && canonTo is SemanticType.Pointer) {
+            if (canonTo.pointee.canonical is SemanticType.Primitive && canonTo.pointee.canonical.isPrimitive(PrimitiveTypeKind.VOID)) {
+                currentType = types.getPointer(types.void, canonCurrent.isConst, canonCurrent.isVolatile);
+                canonCurrent = currentType.canonical
                 seq += ConversionStep(ConversionKind.POINTER_TO_VOID, currentVC, currentType)
             }
-        } else if (currentType != toType && !isQualificationConversion(currentType, toType)) {
+        } else if (!currentType.isSame(toType) && !isQualificationConversion(currentType, toType)) {
             return null
         }
 
-        if (currentType.isFunctionPointer() && toType.isFunctionPointer()) {
-            val fromFun = currentType.pointee as SemanticType.Function
-            val toFun = toType.pointee as SemanticType.Function
+        if (canonCurrent.isFunctionPointer() && canonTo.isFunctionPointer()) {
+            val fromFun = canonCurrent.pointee.canonical as SemanticType.Function
+            val toFun = canonTo.pointee.canonical as SemanticType.Function
 
-            if (fromFun.returnType == toFun.returnType && fromFun.params == toFun.params) {
+            if (fromFun.returnType.isSame(toFun.returnType) && fromFun.params.size == toFun.params.size && fromFun.params.zip(toFun.params).all { it.first.isSame(it.second) }) {
                 if (fromFun.qualifiers.isConst == toFun.qualifiers.isConst &&
                     fromFun.qualifiers.isVolatile == toFun.qualifiers.isVolatile &&
                     fromFun.qualifiers.refQualifier == toFun.qualifiers.refQualifier
                 ) {
 
                     if (fromFun.qualifiers.isNoExcept && !toFun.qualifiers.isNoExcept) {
-                        currentType = types.getPointer(toFun, currentType.isConst, currentType.isVolatile);
+                        currentType = types.getPointer(toFun, canonCurrent.isConst, canonCurrent.isVolatile);
+                        canonCurrent = currentType.canonical
                         seq += ConversionStep(ConversionKind.FUNCTION_PTR_CONVERSION, currentVC, currentType)
                     } else if (fromFun.qualifiers.isNoExcept != toFun.qualifiers.isNoExcept) {
                         return null
@@ -1036,10 +1057,11 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 
         if (!ignoreQualConv && isQualificationConversion(currentType, toType)) {
             currentType = toType
+            canonCurrent = currentType.canonical
             seq += ConversionStep(ConversionKind.QUALIFICATION, currentVC, currentType)
         }
 
-        if (currentType != toType) {
+        if (!currentType.isSame(toType)) {
             return null
         }
 
@@ -1047,13 +1069,14 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     }
 
     fun decomposePointer(type: SemanticType): DecomposedPointer? {
-        if (type !is SemanticType.Pointer) return null
+        val canon = type.canonical
+        if (canon !is SemanticType.Pointer) return null
 
         val levels = mutableListOf<CvQualifiers>()
-        var current: SemanticType = type
+        var current: SemanticType = canon
 
         while (current is SemanticType.Pointer) {
-            val pointee = current.pointee
+            val pointee = current.pointee.canonical
             levels.add(CvQualifiers(pointee.isConst, pointee.isVolatile))
             current = pointee
         }
@@ -1156,7 +1179,8 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     }
 
     override fun getRefValueCategory(returnType: SemanticType): ValueCategory {
-        return when (returnType) {
+        val canon = returnType.canonical
+        return when (canon) {
             is SemanticType.Reference -> ValueCategory.LVALUE
             is SemanticType.RValueReference -> ValueCategory.XVALUE
             else -> ValueCategory.PRVALUE
@@ -1244,12 +1268,12 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     }
 
     override fun getUnderlyingTypeForADL(type: SemanticType): SemanticType {
-        var curr = type
+        var curr = type.canonical
         while (true) {
             curr = when (curr) {
-                is SemanticType.Reference -> curr.pointee
-                is SemanticType.Pointer -> curr.pointee
-                is SemanticType.Array -> curr.elementType
+                is SemanticType.Reference -> curr.pointee.canonical
+                is SemanticType.Pointer -> curr.pointee.canonical
+                is SemanticType.Array -> curr.elementType.canonical
                 else -> return curr
             }
         }

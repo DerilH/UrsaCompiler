@@ -28,14 +28,15 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
             ctx.error("Could not resolve type of operand", node.operand)
             return node;
         }
+        val canonType = type.canonical
 
         val operandInfo = ExpressionInfo(type, vc, ctx.isNullPointerConstant(node.operand))
 
-        if (type is SemanticType.Function && node.operator == Operator.AMP) {
-            node.resolvedType = ctx.types.decay(type)
+        if (canonType is SemanticType.Function && node.operator == Operator.AMP) {
+            node.resolvedType = ctx.types.decay(canonType)
             node.valueCategory = ValueCategory.PRVALUE
-        } else if (type.isPointer()) {
-            val info = resolvePointerUnaryOpType(node.operand.resolvedType as SemanticType.Pointer, node, ctx).getOrElse { ctx.error(it); return node; }
+        } else if (canonType.isPointer()) {
+            val info = resolvePointerUnaryOpType(canonType as SemanticType.Pointer, node, ctx).getOrElse { ctx.error(it); return node; }
             node.resolvedType = info.type;
             node.valueCategory = info.valueCategory;
             node.operand = ctx.buildConversion(node.operand,info.type,info.valueCategory ).getOrElse { ctx.error(it); return node; }
@@ -43,15 +44,15 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
         } else {
             var isPrimitive = false;
             val scope = when {
-                type.isPrimitive() || type.isRValueRef() && type.pointee.isPrimitive() || type.isLValueRef() && type.pointee.isPrimitive() -> {
+                canonType.isPrimitive() || canonType.isRValueRef() && canonType.pointee.canonical.isPrimitive() || canonType.isLValueRef() && canonType.pointee.canonical.isPrimitive() -> {
                     isPrimitive = true; ctx.rootScope
                 };
-                type.isDeclared() -> {
+                canonType.isDeclared() -> {
                     ctx.scope
                 }
 
-                type.isRValueRef() && type.pointee.isDeclared() -> ctx.scope;
-                type.isLValueRef() && type.pointee.isDeclared() -> ctx.scope;
+                canonType.isRValueRef() && canonType.pointee.canonical.isDeclared() -> ctx.scope;
+                canonType.isLValueRef() && canonType.pointee.canonical.isDeclared() -> ctx.scope;
                 else -> {
                     ctx.error("Cannot apply operator ${node.operator} to type ${node.operand.resolvedType}", node)
                     return node;
@@ -80,7 +81,7 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
         node: UnaryExpressionNode,
         ctx: AnalyzeContext
     ): OpResult<ExpressionInfo> {
-        val pointee = operand.pointee
+        val pointee = operand.pointee.canonical
 
         return when (node.operator) {
             Operator.POINTER -> {
