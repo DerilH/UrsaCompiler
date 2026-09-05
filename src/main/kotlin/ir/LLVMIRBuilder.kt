@@ -10,6 +10,9 @@ import org.derilh.core.ConversionKind
 import org.derilh.core.Operator
 import org.derilh.core.Options
 import org.derilh.core.PrimitiveTypeKind
+import org.derilh.core.TypeInfo
+import org.derilh.core.target.FloatFormat
+import org.derilh.core.target.TargetInfo
 import org.derilh.semantic.SemanticType
 import org.derilh.semantic.isDeclared
 import org.derilh.semantic.isPointer
@@ -21,8 +24,6 @@ import java.util.*
 
 class LLVMIRModule(val llvmTarget: LLVMTargetInfo, val module: LLVMModuleRef) : IIRModule {
     override fun compileTo(outputFileName: String): Boolean {
-
-
         val verifyErr = PointerPointer<BytePointer>(1)
 
         if (LLVMVerifyModule(module, LLVMPrintMessageAction, verifyErr) != 0) {
@@ -107,11 +108,7 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             is ImplicitCastExpressionNode -> visitImplicitCast(ast);
             is IdExpressionNode -> visitIdExpr(ast);
             is VariableDeclaratorNode -> getVarDecl(ast.varDecl);
-            is DeclarationSequenceNode -> {
-                ast.declarations.forEach { generateIR(it) };
-                null
-            }
-
+            is DeclarationSequenceNode -> visitDeclSeqNode(ast);
             is IfStatementNode -> visitIf(ast);
             is WhileStatementNode -> visitWhileStmt(ast)
             is StringLiteralNode -> visitStringLit(ast);
@@ -119,9 +116,7 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             is ArrayAccessNode -> visitArrayAccess(ast)
             is CharLiteralNode -> visitCharLit(ast)
             is AsmStatementNode -> visitAsm(ast);
-            is TypeDefStatementNode -> {
-                null; }
-
+            is TypeDefStatementNode -> { null; }
             is ForStatementNode -> visitForStmt(ast)
             is TypeCastExpressionNode -> visitTypeCastExpr(ast);
             is ClassDeclarationNode -> {
@@ -131,15 +126,25 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
                 getStructRef(ast.classDecl); null
             }
 
-            is CompoundStatementNode -> {
-                ast.statements.forEach { generateIR(it) }
-                null
-            }
-
-            is NullptrLiteralNode -> LLVMConstNull(convertType(ast.resolvedType!!))
+            is CompoundStatementNode -> visitCompoundStatementNode(ast);
+            is NullptrLiteralNode -> visitNullptr(ast);
 
             else -> throw IllegalArgumentException("Unsupported node: " + ast)
         }
+    }
+
+    fun visitDeclSeqNode(node: DeclarationSequenceNode): LLVMValueRef? {
+        node.declarations.forEach { generateIR(it) };
+        return null
+    }
+
+    fun visitCompoundStatementNode(node: CompoundStatementNode): LLVMValueRef? {
+        node.statements.forEach { generateIR(it) }
+        return null
+    }
+
+    fun visitNullptr(ast: NullptrLiteralNode): LLVMValueRef {
+        return LLVMConstNull(convertType(ast.resolvedType!!))
     }
 
     fun visitTypeCastExpr(node: TypeCastExpressionNode): LLVMValueRef {
@@ -353,7 +358,7 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             val node = varDecl.astNode as VariableDeclaratorNode
             val varType = convertType(varDecl.type)
 
-            val ref = if(varDecl.parentSymbol == null) {
+            val ref = if (varDecl.parentSymbol == null) {
                 LLVMAddGlobal(module, varType, varDecl.name)
             } else {
                 LLVMBuildAlloca(builder, varType, getUniqueName(varDecl.name))
@@ -492,11 +497,12 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             val fields = decl.layout?.fields ?: emptyList();
 
             val fieldTypes = PointerPointer<LLVMTypeRef>(fields.size.toLong());
-            fields.forEach {
-                fieldTypes.put(convertType(it.type))
+            fields.forEachIndexed { i, field ->
+                val llvmFieldType = convertType(field.type)
+                fieldTypes.put(i.toLong(), llvmFieldType)
             }
 
-            LLVMStructSetBody(type, fieldTypes, 2, /* Packed */ 0)
+            LLVMStructSetBody(type, fieldTypes, fields.size, /* Packed */ 0)
         }
         return type;
     }
@@ -506,56 +512,48 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             when (type) {
                 is SemanticType.Array -> {
                     val refType = convertType(type.elementType);
+                    //TODO: Fix me, use newer llvm version for long size arrays
                     LLVMArrayType(refType, type.size!!.toInt())
+                }
+
+                is SemanticType.Primitive -> {
+                    when {
+                        type.kind == PrimitiveTypeKind.VOID -> LLVMVoidTypeInContext(context)
+                        type.kind == PrimitiveTypeKind.NULLPTR -> { LLVMPointerTypeInContext(context, 0) }
+                        type.kind.isFloat -> {
+                            val format = options.target.getFloatFormat(type.kind);
+                            when(format) {
+                                FloatFormat.IEEE_HALF -> LLVMHalfTypeInContext(context)
+                                FloatFormat.BFLOAT16 -> LLVMBFloatTypeInContext(context)
+                                FloatFormat.IEEE_SINGLE -> LLVMFloatTypeInContext(context)
+                                FloatFormat.IEEE_DOUBLE -> LLVMDoubleTypeInContext(context)
+                                FloatFormat.X87_80 -> LLVMX86FP80TypeInContext(context)
+                                FloatFormat.IEEE_QUAD -> LLVMFP128TypeInContext(context)
+                                FloatFormat.CUSTOM_SOFT_FLOAT -> TODO()
+                            }
+                        }
+                        type.kind.isInt -> {
+                            require(type.kind.isInt) { "Expected int type" }
+                            val width = options.target.getBitWidth(type.kind);
+                            return when (width) {
+                                8L -> LLVMInt8TypeInContext(context)
+                                16L -> LLVMInt16TypeInContext(context)
+                                32L -> LLVMInt32TypeInContext(context)
+                                64L -> LLVMInt64TypeInContext(context)
+                                128L -> LLVMInt128TypeInContext(context)
+                                else -> LLVMIntTypeInContext(context, width.toInt())
+                            }
+                        }
+                        else -> throw IllegalArgumentException("Unsupported primitive type: " + type)
+                    }
                 }
 
                 is SemanticType.Declared -> {
                     getStructRef(type.decl)
                 }
 
-                is SemanticType.Pointer -> {
-                    val refType = convertType(type.pointee);
-                    LLVMPointerType(refType, 0);
-                }
-
-                is SemanticType.Primitive -> {
-                    when (type.kind) {
-                        PrimitiveTypeKind.BOOL -> LLVMInt1TypeInContext(context)
-                        PrimitiveTypeKind.VOID -> LLVMVoidTypeInContext(context)
-                        PrimitiveTypeKind.NULLPTR -> {
-                            val intType = LLVMInt32TypeInContext(context)
-                            LLVMPointerType(intType, 0)
-                        }
-
-                        PrimitiveTypeKind.CHAR -> LLVMInt8TypeInContext(context)
-                        PrimitiveTypeKind.SIGNED_CHAR -> LLVMInt8TypeInContext(context)
-                        PrimitiveTypeKind.UNSIGNED_CHAR -> LLVMInt8TypeInContext(context)
-                        PrimitiveTypeKind.CHAR8_T -> LLVMInt8TypeInContext(context)
-                        PrimitiveTypeKind.CHAR16_T -> LLVMInt16TypeInContext(context)
-                        PrimitiveTypeKind.CHAR32_T -> LLVMInt32TypeInContext(context)
-                        PrimitiveTypeKind.WCHAR_T -> LLVMInt32TypeInContext(context)
-                        PrimitiveTypeKind.SHORT -> LLVMInt16TypeInContext(context)
-                        PrimitiveTypeKind.UNSIGNED_SHORT -> LLVMInt16TypeInContext(context)
-                        PrimitiveTypeKind.INT -> LLVMInt32TypeInContext(context)
-                        PrimitiveTypeKind.UNSIGNED_INT -> LLVMInt32TypeInContext(context)
-                        PrimitiveTypeKind.LONG -> LLVMInt64TypeInContext(context)
-                        PrimitiveTypeKind.UNSIGNED_LONG -> LLVMInt64TypeInContext(context)
-                        PrimitiveTypeKind.LONG_LONG -> LLVMInt64TypeInContext(context)
-                        PrimitiveTypeKind.UNSIGNED_LONG_LONG -> LLVMInt64TypeInContext(context)
-                        PrimitiveTypeKind.FLOAT -> LLVMFloatTypeInContext(context)
-                        PrimitiveTypeKind.DOUBLE -> LLVMDoubleTypeInContext(context)
-                        PrimitiveTypeKind.LONG_DOUBLE -> LLVMX86FP80TypeInContext(context)
-                    }
-                }
-
-                is SemanticType.RValueReference -> {
-                    val refType = convertType(type.pointee);
-                    LLVMPointerType(refType, 0);
-                }
-
-                is SemanticType.Reference -> {
-                    val refType = convertType(type.pointee);
-                    LLVMPointerType(refType, 0);
+                is SemanticType.RValueReference, is SemanticType.Reference, is SemanticType.Pointer -> {
+                    LLVMPointerTypeInContext(context, 0);
                 }
 
                 is SemanticType.Function -> {
@@ -578,11 +576,11 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         val opType = expr.operand.resolvedType!!.canonical;
         val name = getUniqueName("unop")
 
-        if(opType.isPointer() && expr.operator == Operator.AMP) {
-            if(expr.operator == Operator.AMP) {
-                return LLVMBuildGEP2(builder, convertType(opType.pointee), operand, PointerPointer<LLVMValueRef>(0).put(LLVMConstNull(convertType(opType.pointee))), 1, getUniqueName("ptr_null"))
-            }
-        }
+//        if (opType.isPointer() && expr.operator == Operator.AMP) {
+//            if (expr.operator == Operator.AMP) {
+//                return LLVMBuildGEP2(builder, convertType(opType.pointee), operand, PointerPointer<LLVMValueRef>(0).put(LLVMConstNull(convertType(opType.pointee))), 1, getUniqueName("ptr_null"))
+//            }
+//        }
 
         if (!opType.isPrimitive()) TODO("Only primitive unary ops are supported ${opType.toDisplayString()}")
         val isFloat = opType.kind.isFloat;
@@ -623,13 +621,13 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         return when (binaryExpr.operator) {
             Operator.PLUS -> {
                 if (isFloat) LLVMBuildFAdd(builder, leftIR, rightIR, name)
-                else if (isPtr) LLVMBuildInBoundsGEP2(builder, convertType(leftType.pointee), leftIR, PointerPointer<LLVMValueRef>(1).put(rightIR), 1, getUniqueName("addptr"))
+                else if (isPtr) LLVMBuildInBoundsGEP2(builder, convertType(leftType.pointee), leftIR, PointerPointer<LLVMValueRef>(1).put(0, rightIR), 1, getUniqueName("addptr"))
                 else LLVMBuildAdd(builder, leftIR, rightIR, name)
             }
 
             Operator.MINUS -> {
                 if (isFloat) LLVMBuildFSub(builder, leftIR, rightIR, name)
-                else if (isPtr) LLVMBuildInBoundsGEP2(builder, convertType(leftType.pointee), leftIR, PointerPointer<LLVMValueRef>().put(LLVMBuildNeg(builder, rightIR, getUniqueName("neg"))), 1, getUniqueName("addptr"))
+                else if (isPtr) LLVMBuildInBoundsGEP2(builder, convertType(leftType.pointee), leftIR, PointerPointer<LLVMValueRef>(1).put(0, LLVMBuildNeg(builder, rightIR, getUniqueName("neg"))), 1, getUniqueName("subptr"))
                 else LLVMBuildSub(builder, leftIR, rightIR, name)
             }
 
@@ -716,7 +714,6 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         }
     }
 
-    // Возврат значения из функции
     fun visitReturn(node: ReturnStatementNode): LLVMValueRef {
         if (node.expression == null) {
             return LLVMBuildRetVoid(builder)

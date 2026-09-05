@@ -6,6 +6,16 @@ import java.math.BigDecimal
 import java.math.BigInteger
 import java.nio.file.Path
 
+enum class FloatFormat {
+    IEEE_HALF,
+    BFLOAT16,
+    IEEE_SINGLE,
+    IEEE_DOUBLE,
+    X87_80,
+    IEEE_QUAD,
+    CUSTOM_SOFT_FLOAT
+}
+
 enum class TargetOS {
     LINUX,
     WINDOW,
@@ -87,6 +97,16 @@ abstract class TargetInfo(val architecture: TargetArchitecture, val types: Targe
         }
     }
 
+    fun getFloatFormat(kind: PrimitiveTypeKind): FloatFormat {
+        require(kind.isFloat) { "Only floating point types can have a float format" }
+        return when (kind) {
+            PrimitiveTypeKind.FLOAT -> types.floatFormat
+            PrimitiveTypeKind.DOUBLE -> types.doubleFormat
+            PrimitiveTypeKind.LONG_DOUBLE -> types.longDoubleFormat
+            else -> throw IllegalStateException("Unknown float type: $kind")
+        }
+    }
+
     fun getRank(kind: PrimitiveTypeKind): Int {
         return getUnderlyingType(kind).intRank
     }
@@ -121,6 +141,10 @@ data class TargetTypesInfo(
     val double: TypeInfo,
     val longDouble: TypeInfo,
     val pointer: TypeInfo,
+
+    val floatFormat: FloatFormat,
+    val doubleFormat: FloatFormat,
+    val longDoubleFormat: FloatFormat,
 
     // System and BuiltinTypes
     val sizeType: PrimitiveTypeKind,

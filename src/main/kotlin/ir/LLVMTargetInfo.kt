@@ -7,5 +7,5 @@ import org.bytedeco.llvm.LLVM.LLVMTargetMachineRef
 data class LLVMTargetInfo (
     val target: LLVMTargetMachineRef,
     val dataLayout: LLVMTargetDataRef,
-    val targetTriple: BytePointer
+    val targetTriple: BytePointer,
 )

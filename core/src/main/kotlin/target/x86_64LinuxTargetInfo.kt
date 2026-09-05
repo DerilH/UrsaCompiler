@@ -40,6 +40,11 @@ private val t = TargetTypesInfo(
     int64Type = PrimitiveTypeKind.LONG,
     sigAtomicType = PrimitiveTypeKind.INT,
     processIdType = PrimitiveTypeKind.INT,
+
+    floatFormat = FloatFormat.IEEE_SINGLE,
+    doubleFormat = FloatFormat.IEEE_DOUBLE,
+    longDoubleFormat = FloatFormat.X87_80,
+
     maxFloat = BigDecimal("3.4028235E38"),
     maxDouble = BigDecimal("1.7976931348623157E308"),
     maxLongDouble = BigDecimal("1.189731495357231765085759326628007016196477e4932")

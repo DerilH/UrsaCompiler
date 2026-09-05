@@ -22,6 +22,7 @@ import org.derilh.core.target.TargetInfo
 class LLVMInitializer {
     companion object {
         fun init(targetInfo: TargetInfo): LLVMTargetInfo {
+            //TODO: Add proper target initializing when crosscompiling
             when (targetInfo.architecture) {
                 TargetArchitecture.X86_64 -> {
                     LLVMInitializeX86TargetInfo();
