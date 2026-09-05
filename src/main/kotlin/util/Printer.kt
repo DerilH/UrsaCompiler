@@ -45,7 +45,10 @@ class Printer(val source: String) {
 
     fun printException(e: SyntaxProblem) {
         val loc = e.location;
-        var line = lines[loc.line - 1]
+        var line = lines.getOrNull(loc.line - 1) ?: run {
+            println("${e.msg} at ${loc}}")
+            return;
+        }
         val builder = StringBuilder()
         var currentPos = 0
         val lexer = Lexer()

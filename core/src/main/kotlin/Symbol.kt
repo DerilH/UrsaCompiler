@@ -8,6 +8,7 @@ enum class Symbol(val value: Char) {
     BEGIN('{'),
     END('}'),
     SEPARATOR(';'),
+    QUESTION('?'),
     COLON(':'),
     COMMA(','),
 }

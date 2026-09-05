@@ -3,22 +3,23 @@ package org.derilh.core
 enum class Precedence {
     LOWEST,         // 0: Базовий/найнижчий стан
     ASSIGNMENT,     // 1: =, +=, -=, *=, /=, %=, <<=, >>=, &=, ^=, |=
-    LOGICAL_OR,     // 2: ||
-    LOGICAL_AND,    // 3: &&
-    BITWISE_OR,     // 4: |
-    BITWISE_XOR,    // 5: ^
-    BITWISE_AND,    // 6: & (бінарний)
-    EQUALITY,       // 7: ==, !=
-    RELATIONAL,     // 8: <, <=, >, >=, <=>
-    BITWISE_SHIFT,  // 9: <<, >>
-    ADDITIVE,       // 10: +, -
-    MULTIPLICATIVE, // 11: *, /, %
-    POINTER_MEMBER, // 12: .*, ->* (Доступ до членів за вказівником)
-    UNARY,          // 13: !, ~, -x, +x, ++x, --x, *ptr, &x, ::
-    POSTFIX;         // 14: x++, x--, ., ->, (), [] (найвищий)
+    CONDITIONAL,    // 2: ?:
+    LOGICAL_OR,     // 3: ||
+    LOGICAL_AND,    // 4: &&
+    BITWISE_OR,     // 5: |
+    BITWISE_XOR,    // 6: ^
+    BITWISE_AND,    // 7: & (бінарний)
+    EQUALITY,       // 8: ==, !=
+    RELATIONAL,     // 9: <, <=, >, >=, <=>
+    BITWISE_SHIFT,  // 10: <<, >>
+    ADDITIVE,       // 11: +, -
+    MULTIPLICATIVE, // 12: *, /, %
+    POINTER_MEMBER, // 13: .*, ->* (Доступ до членів за вказівником)
+    UNARY,          // 14: !, ~, -x, +x, ++x, --x, *ptr, &x, ::
+    POSTFIX;        // 15: x++, x--, ., ->, (), [] (найвищий)
 
     fun isRightAssociative(): Boolean {
-        return this == ASSIGNMENT
+        return this == ASSIGNMENT || this == CONDITIONAL
     }
 
     fun decrement(): Precedence {

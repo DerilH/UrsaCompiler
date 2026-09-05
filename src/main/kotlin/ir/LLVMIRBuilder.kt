@@ -12,6 +12,7 @@ import org.derilh.core.Options
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.semantic.SemanticType
 import org.derilh.semantic.isDeclared
+import org.derilh.semantic.isPointer
 import org.derilh.semantic.isPrimitive
 import java.math.BigInteger
 import java.nio.ByteBuffer
@@ -59,7 +60,7 @@ class LLVMIRModule(val llvmTarget: LLVMTargetInfo, val module: LLVMModuleRef) : 
             return false;
         }
         val ptr = BytePointer();
-        LLVMPrintModuleToFile(module,outputFileName,ptr)
+        LLVMPrintModuleToFile(module, outputFileName, ptr)
         return true;
     }
 }
@@ -72,6 +73,7 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
     lateinit var targetInfo: LLVMTargetInfo
     val types = IdentityHashMap<SemanticType, LLVMTypeRef>();
     val functions = IdentityHashMap<DeclSymbol.FunctionDecl, LLVMValueRef>();
+    val structs = IdentityHashMap<DeclSymbol.ClassDecl, LLVMTypeRef>();
     val variables = IdentityHashMap<DeclSymbol.VariableDecl, LLVMValueRef>();
 
     var nameIdCounter: Int = 0;
@@ -122,10 +124,19 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
             is ForStatementNode -> visitForStmt(ast)
             is TypeCastExpressionNode -> visitTypeCastExpr(ast);
+            is ClassDeclarationNode -> {
+                getStructRef(ast.classDecl); null
+            };
+            is ClassDefinitionNode -> {
+                getStructRef(ast.classDecl); null
+            }
+
             is CompoundStatementNode -> {
                 ast.statements.forEach { generateIR(it) }
                 null
             }
+
+            is NullptrLiteralNode -> LLVMConstNull(convertType(ast.resolvedType!!))
 
             else -> throw IllegalArgumentException("Unsupported node: " + ast)
         }
@@ -342,14 +353,18 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             val node = varDecl.astNode as VariableDeclaratorNode
             val varType = convertType(varDecl.type)
 
-            val alloca = LLVMBuildAlloca(builder, varType, getUniqueName(varDecl.name))
+            val ref = if(varDecl.parentSymbol == null) {
+                LLVMAddGlobal(module, varType, varDecl.name)
+            } else {
+                LLVMBuildAlloca(builder, varType, getUniqueName(varDecl.name))
+            }
 
             val init = node.initializer
             if (init != null) {
                 val initVal = generateIR(init)!!
-                LLVMBuildStore(builder, initVal, alloca)
+                LLVMBuildStore(builder, initVal, ref)
             }
-            alloca
+            ref
         }
     }
 
@@ -398,7 +413,11 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             }
 
             ConversionKind.NULL_TO_POINTER -> {
-                val t = convertType(node.resolvedType!!.canonical)
+                return generateIR(node.operand)!!
+            }
+
+            ConversionKind.POINTER_TO_VOID -> {
+                val t = convertType(node.resolvedType!!)
                 return LLVMConstNull(t)
             }
 
@@ -427,10 +446,6 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
     fun getFunctionRef(decl: DeclSymbol.FunctionDecl): LLVMValueRef {
         return functions.getOrPut(decl) {
-//            val paramArr = decl.params.map { convertType(it) }.toTypedArray();
-//            val p = PointerPointer(*paramArr)
-//            val funcType = LLVMFunctionType(LLVMInt32TypeInContext(context), p, paramArr.size, 0)
-
             val funcType = convertType(decl.signatureType);
 
             val func = LLVMAddFunction(module, decl.name, funcType)
@@ -469,6 +484,23 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         }
     }
 
+    fun getStructRef(decl: DeclSymbol.ClassDecl): LLVMTypeRef {
+        var type = structs.getOrDefault(decl, null);
+        if (type == null) {
+            type = LLVMStructCreateNamed(context, getUniqueName("class.${decl.name}"))
+            structs += decl to type
+            val fields = decl.layout?.fields ?: emptyList();
+
+            val fieldTypes = PointerPointer<LLVMTypeRef>(fields.size.toLong());
+            fields.forEach {
+                fieldTypes.put(convertType(it.type))
+            }
+
+            LLVMStructSetBody(type, fieldTypes, 2, /* Packed */ 0)
+        }
+        return type;
+    }
+
     fun convertType(type: SemanticType): LLVMTypeRef {
         return types.getOrPut(type) {
             when (type) {
@@ -478,10 +510,7 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
                 }
 
                 is SemanticType.Declared -> {
-                    LLVMStructCreateNamed(context, type.decl.name).also {
-                        val params = type.decl.layout!!.fields.map { f -> convertType(f.type) }
-                        LLVMStructSetBody(it, params[0], 2, 0 /* isPacked = false */)
-                    }
+                    getStructRef(type.decl)
                 }
 
                 is SemanticType.Pointer -> {
@@ -548,6 +577,13 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         val operand = generateIR(expr.operand)!!
         val opType = expr.operand.resolvedType!!.canonical;
         val name = getUniqueName("unop")
+
+        if(opType.isPointer() && expr.operator == Operator.AMP) {
+            if(expr.operator == Operator.AMP) {
+                return LLVMBuildGEP2(builder, convertType(opType.pointee), operand, PointerPointer<LLVMValueRef>(0).put(LLVMConstNull(convertType(opType.pointee))), 1, getUniqueName("ptr_null"))
+            }
+        }
+
         if (!opType.isPrimitive()) TODO("Only primitive unary ops are supported ${opType.toDisplayString()}")
         val isFloat = opType.kind.isFloat;
 
@@ -580,18 +616,20 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
         val name = getUniqueName("binop")
 
         val isFloat = leftType.isPrimitive() && leftType.kind.isFloat;
+        val isPtr = leftType.isPointer();
         if (leftType.isDeclared() || rightType.isDeclared()) {
             TODO("Operator overload not supported yet on IR level")
         }
-
         return when (binaryExpr.operator) {
             Operator.PLUS -> {
                 if (isFloat) LLVMBuildFAdd(builder, leftIR, rightIR, name)
+                else if (isPtr) LLVMBuildInBoundsGEP2(builder, convertType(leftType.pointee), leftIR, PointerPointer<LLVMValueRef>(1).put(rightIR), 1, getUniqueName("addptr"))
                 else LLVMBuildAdd(builder, leftIR, rightIR, name)
             }
 
             Operator.MINUS -> {
                 if (isFloat) LLVMBuildFSub(builder, leftIR, rightIR, name)
+                else if (isPtr) LLVMBuildInBoundsGEP2(builder, convertType(leftType.pointee), leftIR, PointerPointer<LLVMValueRef>().put(LLVMBuildNeg(builder, rightIR, getUniqueName("neg"))), 1, getUniqueName("addptr"))
                 else LLVMBuildSub(builder, leftIR, rightIR, name)
             }
 

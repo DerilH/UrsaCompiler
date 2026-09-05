@@ -39,7 +39,7 @@ class Preprocessor {
             val firstToken = includeTokens.first()
 
             if (firstToken is StringLiteralToken) {
-                return firstToken.stringValue to false
+                return Util.codePointsToUtf16Unescaped(firstToken.value) to false
             }
             if ((firstToken is OperatorToken && firstToken.value == Operator.LESS)) {
                 val pathBuilder = StringBuilder()
@@ -752,6 +752,22 @@ class PreprocessorExpressionParser(private val definedMacros: Set<String>) {
             val token = currentTokens[index]
 
             if (token isA Symbol.RPAREN) break
+
+            if (token isA Symbol.QUESTION) {
+                if (Precedence.CONDITIONAL < precedence) break
+                index++
+
+                val whenTrue = parseExpression(Precedence.LOWEST)
+                val p = peek();
+                if (p != null && p notA Symbol.COLON) {
+                    throw IllegalStateException("Expected ':' in conditional preprocessor expression")
+                }
+                index++
+
+                val whenFalse = parseExpression(Precedence.CONDITIONAL)
+                left = if (left != 0L) whenTrue else whenFalse
+                continue
+            }
 
             val op = extractBinaryOperator(token) ?: break
 

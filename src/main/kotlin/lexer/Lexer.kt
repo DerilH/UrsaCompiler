@@ -334,7 +334,7 @@ class Lexer(val enablePreprocessor: Boolean = true, val baseLocation: SourceLoca
                 skipLine();
                 if (input[i - 2] != '\\') break;
             }
-            val endI = i - 1;
+            val endI = i;
             val tokens = Lexer(enablePreprocessor = false, baseLocation = startLoc(), options = options).tokenize(input.substring(startI, endI), currentFile)
                 .filter { it.stringValue != "\\" }
             val directive = tokens.firstOrNull()?.stringValue ?: throw IllegalStateException("Invalid preprocessor directive ${tokens.firstOrNull()}");
@@ -437,6 +437,7 @@ class Lexer(val enablePreprocessor: Boolean = true, val baseLocation: SourceLoca
         include += path.absolutePathString()
         val code = Files.readString(path);
         val module = RunHelper.runLexer(code, options.copy(inputFile = path), macros.values);
+        macros += module.lexer!!.macros //TODO: Optimize me
         append(module.tokens!!)
     }
 
@@ -791,6 +792,7 @@ class Lexer(val enablePreprocessor: Boolean = true, val baseLocation: SourceLoca
             '{' -> Symbol.BEGIN
             '}' -> Symbol.END
             ';' -> Symbol.SEPARATOR
+            '?' -> Symbol.QUESTION
             ':' -> Symbol.COLON
             ',' -> Symbol.COMMA
             else -> null

@@ -39,7 +39,9 @@ class UnaryExprAnalyzer : NodeAnalyzer<UnaryExpressionNode> {
             val info = resolvePointerUnaryOpType(canonType as SemanticType.Pointer, node, ctx).getOrElse { ctx.error(it); return node; }
             node.resolvedType = info.type;
             node.valueCategory = info.valueCategory;
-            node.operand = ctx.buildConversion(node.operand,info.type,info.valueCategory ).getOrElse { ctx.error(it); return node; }
+            if(node.operator != Operator.AMP) {
+                node.operand = ctx.buildConversion(node.operand, info.type, info.valueCategory).getOrElse { ctx.error(it); return node; }
+            }
             return node;
         } else {
             var isPrimitive = false;
