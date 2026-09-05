@@ -241,7 +241,7 @@ class BinaryExprAnalyzer : NodeAnalyzer<BinaryExpressionNode> {
                 OpResult.success(node)
             }
 
-            Operator.DOT_STAR, Operator.ARROW_STAR, Operator.DOT, Operator.ARROW -> OpResult.failure("Operator '${node.operator}' cannot be used on primitive type", node)
+            Operator.DOT_STAR, Operator.ARROW_STAR, Operator.DOT, Operator.ARROW, Operator.TRIPLE_DOT, Operator.HASH, Operator.DOUBLE_HASH -> OpResult.failure("Operator '${node.operator}' cannot be used on primitive type", node)
         }
     }
 

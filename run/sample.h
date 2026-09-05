@@ -440,3 +440,103 @@ void testStrings() {
 //
 //     return 0;
 // }
+
+// void funcptr(int *, int*, int = 1) {
+//
+// }
+// struct test2 {
+// };
+//
+// struct test1 {
+//     test2 t2;
+// };
+//
+//
+// namespace N2 {
+//     struct test;
+// }
+//
+// namespace N3 {
+//
+//     struct test1 {};
+//     int callTest(N2::test*, test1**) {}
+// }
+//
+// namespace N2 {
+//     struct test {
+//         test1 t1;
+//     };
+//
+//     int callTest(test*, N3::test1*) {
+//     }
+// }
+//
+// namespace NS {
+//     struct Outer {
+//         struct Inner {};
+//
+//         void foo(Inner) {}
+//         int foo(int) {}
+//     };
+//
+//     void bar(Outer::Inner) {}
+// }
+//
+//
+// void testFunc(int i) {
+// }
+//
+// int main() {
+//     while(true) {
+//     }
+//
+//     NS::Outer obj;
+//     NS::Outer::Inner obj1;
+//     auto tadsf = obj.foo(1);
+//
+//     auto asdasdad = testFunc;
+//
+//     void (*funcptr)(int, double);
+//
+//     void (*asdfasdf)(int, double) = funcptr;
+//
+//     funcptr(1,1);
+//
+//     int i = 1;
+//     int ii = 2;
+//     i = ii = 3;
+//     N3::test1 asdasd;
+//     N2::test asdasd2;
+//
+//     auto asdfadsf = &asdasd;
+//
+//     callTest(&asdasd2, asdfadsf);
+//
+//     N2::test j;
+//
+//     test2 zxc = j.t1.t2;
+//     test1 *test1Ptr = &j.t1;
+//     int a = 0 + 1.0;
+//     int *ptr = &a;
+//     volatile int *ptrV;
+//     test1 *cfg;
+//
+//     int **p = &ptr;
+//     int **ap = &ptr;
+//
+//     auto test = p == ap;
+//
+//     double d = 0;
+//     double *ptrD = &d;
+//     auto t = ptr > ptrV;
+//
+//     auto g = a = 1;
+//
+//     auto asdfa = 1 + 2;
+//
+//     return 1;
+// }
+
+// long test(long i, long a) {
+//     return i + a;
+// }

@@ -65,6 +65,21 @@ class Util {
             val remainder = offset % align
             return if (remainder == 0L) offset else offset + (align - remainder)
         }
+        fun utf16ToCodePoints(text: String): IntArray {
+            val codePointCount = text.codePointCount(0, text.length)
+            val result = IntArray(codePointCount)
+
+            var charIndex = 0
+            var codePointIndex = 0
+
+            while (charIndex < text.length) {
+                val codePoint = text.codePointAt(charIndex)
+                result[codePointIndex++] = codePoint
+                charIndex += Character.charCount(codePoint)
+            }
+
+            return result
+        }
     }
 }
 

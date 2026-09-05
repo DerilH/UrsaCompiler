@@ -2,8 +2,10 @@ package org.derilh.core.target
 
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.TypeInfo
-import org.derilh.core.target.X86_64LinuxTargetInfo.types
 import java.math.BigDecimal
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
 
 private val t = TargetTypesInfo(
     isCharSigned = true,
@@ -43,4 +45,43 @@ private val t = TargetTypesInfo(
     maxLongDouble = BigDecimal("1.189731495357231765085759326628007016196477e4932")
 )
 
-object X86_64LinuxTargetInfo : TargetInfo(architecture = TargerArchitecture.X86_64, types = t)
+object X86_64LinuxTargetInfo : TargetInfo(architecture = TargetArchitecture.X86_64, types = t) {
+    override fun detectIncludes(): List<Path> {
+        val paths = mutableListOf<Path>()
+
+        val cppBase = Paths.get("/usr/include/c++")
+        if (Files.exists(cppBase)) {
+            val latestVersion = Files.list(cppBase)
+                .filter { Files.isDirectory(it) }
+                .map { it.fileName.toString() }
+                .sorted(Comparator.reverseOrder())
+                .findFirst()
+                .orElse(null)
+
+            if (latestVersion != null) {
+                val stlPath = cppBase.resolve(latestVersion)
+                paths.add(stlPath)
+
+                val archPath = Paths.get("/usr/include/x86_64-linux-gnu/c++", latestVersion)
+                if (Files.exists(archPath)) {
+                    paths.add(archPath)
+                }
+            }
+        }
+
+        val standardCPaths = listOf(
+            "/usr/local/include",
+            "/usr/include/x86_64-linux-gnu",
+            "/usr/include",
+        )
+
+        for (p in standardCPaths) {
+            val path = Paths.get(p)
+            if (Files.exists(path)) {
+                paths.add(path)
+            }
+        }
+
+        return paths
+    }
+}

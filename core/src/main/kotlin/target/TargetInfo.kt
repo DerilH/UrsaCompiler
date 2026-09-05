@@ -4,8 +4,15 @@ import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.TypeInfo
 import java.math.BigDecimal
 import java.math.BigInteger
+import java.nio.file.Path
 
-enum class TargerArchitecture {
+enum class TargetOS {
+    LINUX,
+    WINDOW,
+    MACOS
+}
+
+enum class TargetArchitecture {
     X86_64,
     X86_32,
     ARM_32,
@@ -17,7 +24,7 @@ enum class TargerArchitecture {
     SPARC_32,
 }
 
-abstract class TargetInfo(val architecture: TargerArchitecture, val types: TargetTypesInfo) {
+abstract class TargetInfo(val architecture: TargetArchitecture, val types: TargetTypesInfo) {
 
     fun promoteIntegralType(kind: PrimitiveTypeKind): PrimitiveTypeKind {
         if (!kind.isInt) throw IllegalArgumentException("Trying to promote non-integral type $kind")
@@ -82,13 +89,6 @@ abstract class TargetInfo(val architecture: TargerArchitecture, val types: Targe
 
     fun getRank(kind: PrimitiveTypeKind): Int {
         return getUnderlyingType(kind).intRank
-//        return when (kind) {
-//            PrimitiveTypeKind.WCHAR_T -> getRank(types.wCharType)
-//            PrimitiveTypeKind.CHAR16_T -> getRank(types.char16Type)
-//            PrimitiveTypeKind.CHAR32_T -> getRank(types.char32Type)
-//            PrimitiveTypeKind.SIZE_T -> getRank(types.sizeType)
-//            else -> kind.intRank
-//        }
     }
 
     fun getUnderlyingType(type: PrimitiveTypeKind): PrimitiveTypeKind {
@@ -100,6 +100,8 @@ abstract class TargetInfo(val architecture: TargerArchitecture, val types: Targe
             else -> type
         }
     }
+
+    abstract fun detectIncludes(): List<Path>;
 }
 
 

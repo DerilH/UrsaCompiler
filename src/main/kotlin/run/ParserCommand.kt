@@ -7,22 +7,22 @@ import org.derilh.core.OutputMethod
 import java.io.PrintStream
 import java.nio.file.Files
 
-class SemaCommand : CliktCommand(
-    name = "sema",
-    help = "Run the semantic analyzer on input"
+class ParserCommand : CliktCommand(
+    name = "parser",
+    help = "Run the parser on a source file to obtain AST tree"
 ) {
 
-    val options: Options by requireObject()
+    val options by requireObject<Options>()
 
     override fun run() {
         val code = Files.readString(options.inputFile)
-        val out = RunHelper.analyze(code, options.inputFile, options)
+        val out = RunHelper.parse(code, options.inputFile, options)
         val printer = out.createPrinter()
-        if (out.hasErrors()) {
+        if (!out.parseResult!!.isSuccess()) {
             out.parseResult!!.problems.flatMap { it.value }.forEach { printer.printException(it) }
-            out.analyzeResult!!.problems.flatMap { it.value }.forEach { printer.printException(it) }
         } else {
-            val astString = printer.astToString(out.analyzeResult!!.ast);
+            printer.printSuccess()
+            val astString = printer.astToString(out.parseResult!!.ast);
             val outMethod = out.options.outputMethod
             if (outMethod is OutputMethod.Terminal) {
                 print(astString)
@@ -35,5 +35,4 @@ class SemaCommand : CliktCommand(
         }
     }
 }
-
 

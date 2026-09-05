@@ -79,7 +79,11 @@ enum class Operator(
     INCREMENT("++", Precedence.POSTFIX, isUnary = true),
     DECREMENT("--", Precedence.POSTFIX, isUnary = true),
     DOT(".", Precedence.POSTFIX, isBinary = true, isOverloadable = false),
-    ARROW("->", Precedence.POSTFIX, isBinary = true);
+    ARROW("->", Precedence.POSTFIX, isBinary = true),
+    TRIPLE_DOT("...", Precedence.POSTFIX),
+    HASH("#", Precedence.POSTFIX),
+    DOUBLE_HASH("##", Precedence.POSTFIX);
+
 
     fun isAssignment(): Boolean {
         return this.precedence == Precedence.ASSIGNMENT

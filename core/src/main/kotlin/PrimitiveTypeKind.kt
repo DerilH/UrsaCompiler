@@ -25,6 +25,7 @@ enum class PrimitiveTypeKind(val isInt: Boolean = false, val isFloat: Boolean = 
     FLOAT(isFloat = true, floatRank = 20, floatSubRank = 1),
     DOUBLE(isFloat = true, floatRank = 30, floatSubRank = 1),
     LONG_DOUBLE(isFloat = true, floatRank = 40, floatSubRank = 1);
+
     fun toUnsigned(): PrimitiveTypeKind = when (this) {
         SHORT -> UNSIGNED_SHORT
         INT -> UNSIGNED_INT
@@ -33,6 +34,36 @@ enum class PrimitiveTypeKind(val isInt: Boolean = false, val isFloat: Boolean = 
         CHAR, SIGNED_CHAR -> UNSIGNED_CHAR
         else -> this
     }
+
+
+    val cName: String
+        get() = when (this) {
+            VOID -> "void"
+            NULLPTR -> "std::nullptr_t"
+            BOOL -> "bool"
+
+            CHAR -> "char"
+            SIGNED_CHAR -> "signed char"
+            UNSIGNED_CHAR -> "unsigned char"
+
+            CHAR8_T -> "char8_t"
+            CHAR16_T -> "char16_t"
+            CHAR32_T -> "char32_t"
+            WCHAR_T -> "wchar_t"
+
+            SHORT -> "short"
+            UNSIGNED_SHORT -> "unsigned short"
+            INT -> "int"
+            UNSIGNED_INT -> "unsigned int"
+            LONG -> "long"
+            UNSIGNED_LONG -> "unsigned long"
+            LONG_LONG -> "long long"
+            UNSIGNED_LONG_LONG -> "unsigned long long"
+
+            FLOAT -> "float"
+            DOUBLE -> "double"
+            LONG_DOUBLE -> "long double"
+        }
 }
 
 data class TypeInfo(val widthBits: Long, val alignBits: Long)
