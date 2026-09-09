@@ -9,7 +9,7 @@ import org.derilh.ast.CallExpressionNode
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.IdExpressionNode
 import org.derilh.ast.QualifiedIdentifierNode
-import org.derilh.core.RefQualifier
+import org.derilh.ast.RefQualifier
 import org.derilh.core.ValueCategory
 import org.derilh.core.getAsOrElse
 import org.derilh.core.getOrElse
@@ -154,21 +154,20 @@ class CallExprAnalyzer : NodeAnalyzer<CallExpressionNode> {
             return false
         }
         when (method.qualifiers.refQualifier) {
-            RefQualifier.LVALUE -> {
+            is RefQualifier.LValue -> {
                 val isLValue = category == ValueCategory.LVALUE
                 if (!isLValue && !method.qualifiers.isConst) {
                     return false
                 }
             }
 
-            RefQualifier.RVALUE -> {
+            is RefQualifier.RValue -> {
                 val isRValue = category == ValueCategory.PRVALUE || category == ValueCategory.XVALUE
                 if (!isRValue) {
                     return false
                 }
             }
-
-            RefQualifier.NONE -> {}
+            else -> {}
         }
 
         return true

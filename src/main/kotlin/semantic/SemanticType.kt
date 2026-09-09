@@ -1,9 +1,9 @@
 package org.derilh.semantic
 
 import org.derilh.analyzer.DeclSymbol
+import org.derilh.ast.RefQualifier
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.PrimitiveTypeKind
-import org.derilh.core.RefQualifier
 import org.derilh.core.TypeInfo
 import org.derilh.semantic.SemanticType.Declared
 import org.derilh.semantic.SemanticType.Pointer
@@ -12,7 +12,6 @@ import org.derilh.semantic.SemanticType.RValueReference
 import org.derilh.semantic.SemanticType.Reference
 import org.derilh.util.lazyUntilNonNull
 import java.util.Objects
-import javax.swing.JEditorPane
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.contract
 
@@ -56,15 +55,15 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun hashCode(): Int = Objects.hash(kind, isConst, isVolatile)
     }
 
-    class Pointer internal constructor(val pointee: SemanticType, isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key) : SemanticType(isConst, isVolatile, key) {
+    class Pointer internal constructor(val pointee: SemanticType, isConst: Boolean, isVolatile: Boolean, val isRestrict: Boolean, key: TypeContext.Key) : SemanticType(isConst, isVolatile, key) {
         override val isComplete: Boolean = true
 
         override fun dropCV(key: TypeContext.Key): SemanticType {
-            return key.getOrCreate(Pointer(pointee, isConst = false, isVolatile = false, key = key).let { if (it === this) this else it })
+            return key.getOrCreate(Pointer(pointee, isConst = false, isVolatile = false, isRestrict = false, key = key).let { if (it === this) this else it })
         }
 
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType {
-            return key.getOrCreate(Pointer(pointee, isConst = isConst, isVolatile = isVolatile, key = key).let { if (it === this) this else it })
+            return key.getOrCreate(Pointer(pointee, isConst = isConst, isVolatile = isVolatile, isRestrict, key = key).let { if (it === this) this else it })
         }
 
         override fun toDisplayString(): String = "${pointee.toDisplayString()}*${qualifiersPrefix().trimEnd()}"
@@ -133,7 +132,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         }
 
         override fun decay(key: TypeContext.Key): SemanticType {
-            return key.getOrCreate(Pointer(elementType, isConst = false, isVolatile = false, key = key))
+            return key.getOrCreate(Pointer(elementType, isConst = false, isVolatile = false, false, key = key))
         }
 
         override fun toDisplayString(): String {
@@ -166,7 +165,7 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
         override fun dropCV(key: TypeContext.Key): SemanticType = this
         override fun addCV(isConst: Boolean, isVolatile: Boolean, key: TypeContext.Key): SemanticType = this
         override fun decay(key: TypeContext.Key): SemanticType {
-            return key.getOrCreate(Pointer(this, isConst = false, isVolatile = false, key = key))
+            return key.getOrCreate(Pointer(this, isConst = false, isVolatile = false, false, key = key))
         }
 
         override fun toDisplayString(): String {
@@ -174,9 +173,9 @@ sealed class SemanticType(val isConst: Boolean = false, val isVolatile: Boolean 
             val methodQuals = buildString {
                 if (qualifiers.isConst) append(" const")
                 if (qualifiers.isVolatile) append(" volatile")
-                if (qualifiers.refQualifier == RefQualifier.LVALUE) append(" &")
-                if (qualifiers.refQualifier == RefQualifier.RVALUE) append(" &&")
-                if (qualifiers.isNoExcept) append(" noexcept")
+                if (qualifiers.refQualifier is RefQualifier.LValue) append(" &")
+                if (qualifiers.refQualifier is RefQualifier.RValue) append(" &&")
+                if (qualifiers.noExceptSpec != null) append(" noexcept(expr)")
             }
             return "${returnType.toDisplayString()}($paramsStr)$methodQuals"
         }

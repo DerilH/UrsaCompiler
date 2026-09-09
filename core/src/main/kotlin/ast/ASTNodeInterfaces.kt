@@ -17,49 +17,49 @@ interface IQualifiedIdentifierNode : IIdentifierNode {
     val isGlobal: Boolean
 }
 
-interface ITypeNode : IASTNode {
-    val isConst: Boolean
-    val isVolatile: Boolean
-    fun toDisplayString(): String
-}
+//interface ITypeNode : IASTNode {
+//    val isConst: Boolean
+//    val isVolatile: Boolean
+//    fun toDisplayString(): String
+//}
 
-interface IPrimitiveTypeNode : ITypeNode {
-    val kind: org.derilh.core.PrimitiveTypeKind
-}
-
-interface IDeclaredTypeNode : ITypeNode {
-    val typeName: IIdentifierNode
-}
-
-interface IAutoTypeNode : ITypeNode
-
-interface IMemberPointerTypeNode : ITypeNode {
-    val parentId: IIdentifierNode
-    val type: ITypeNode
-}
-
-interface IPointerTypeNode : ITypeNode {
-    val type: ITypeNode
-}
-
-interface IReferenceTypeNode : ITypeNode {
-    val type: ITypeNode
-}
-
-interface IRValueReferenceTypeNode : ITypeNode {
-    val type: ITypeNode
-}
-
-interface IFunctionTypeNode : ITypeNode {
-    val returnType: ITypeNode
-    val params: List<IParameterNode>
-    val qualifiers: org.derilh.core.FunctionQualifiers
-}
-
-interface IArrayTypeNode : ITypeNode {
-    val elementType: ITypeNode
-    val sizeExpression: IExpressionNode?
-}
+//interface IPrimitiveTypeNode : ITypeNode {
+//    val kind: org.derilh.core.PrimitiveTypeKind
+//}
+//
+//interface IDeclaredTypeNode : ITypeNode {
+//    val typeName: IIdentifierNode
+//}
+//
+//interface IAutoTypeNode : ITypeNode
+//
+//interface IMemberPointerTypeNode : ITypeNode {
+//    val parentId: IIdentifierNode
+//    val type: ITypeNode
+//}
+//
+//interface IPointerTypeNode : ITypeNode {
+//    val type: ITypeNode
+//}
+//
+//interface IReferenceTypeNode : ITypeNode {
+//    val type: ITypeNode
+//}
+//
+//interface IRValueReferenceTypeNode : ITypeNode {
+//    val type: ITypeNode
+//}
+//
+//interface IFunctionTypeNode : ITypeNode {
+//    val returnType: ITypeNode
+//    val params: List<IParameterNode>
+//    val qualifiers: org.derilh.core.FunctionQualifiers
+//}
+//
+//interface IArrayTypeNode : ITypeNode {
+//    val elementType: ITypeNode
+//    val sizeExpression: IExpressionNode?
+//}
 
 interface IExpressionNode : IASTNode {
     var valueCategory: org.derilh.core.ValueCategory
@@ -100,13 +100,13 @@ interface IStringConcatExpressionNode : IExpressionNode {
 interface IThisExpressionNode : IExpressionNode
 
 interface INewExpressionNode : IExpressionNode {
-    val placementArgs: List<IExpressionNode>
-    val initializerList: IInitializerListExpressionNode?
-    val type: ITypeNode
+    val placementArgs: List<IExpressionNode>?
+    val initializerList: IExpressionNode?
+//    val type: ITypeNode
 }
 
 interface ISizeofExpressionNode : IExpressionNode {
-    val expression: IASTNode
+    val expression: IASTNode?
 }
 
 interface IIdExpressionNode : IExpressionNode {
@@ -127,6 +127,7 @@ interface IArgumentsNode : IASTNode {
 }
 
 interface IInitializerListExpressionNode : IExpressionNode {
+    val isBraced: Boolean;
     val arguments: List<IExpressionNode>
 }
 
@@ -150,22 +151,15 @@ interface IAnonymousBlock : ICompoundStatementNode
 interface IDeclarationNode : IStatementNode
 interface IDefinitionNode : IStatementNode
 
-interface IConstructorDeclarationNode : IDeclarationNode {
-    val defaultParamCount: Int
-    val type: IFunctionTypeNode
-    val isExplicit: Boolean
+interface IConstructorDeclarationNode : IFunctionDeclarationNode {
 }
 
-interface IConstructorDefinitionNode : IDefinitionNode {
-    val type: IFunctionTypeNode
+interface IConstructorDefinitionNode : IFunctionDefinitionNode {
     val memberInitializers: List<IMemberInitializerNode>
-    val body: IStatementNode
-    val isExplicit: Boolean
-    val defaultParamCount: Int
 }
 
 interface IFunctionDefinitionNode : IDefinitionNode {
-    val declarator: IFunctionDeclaratorNode
+    val declaration: IFunctionDeclarationNode
     val body: IFunctionBodyNode
     val name: IIdentifierNode
 }
@@ -177,38 +171,32 @@ interface IMemberInitializerNode : IASTNode {
 }
 
 interface IParameterNode : IASTNode {
-    val declarator: IDeclaratorNode
-    val name: IIdentifierNode?
-    val type: ITypeNode
     var hasDefaultValue: Boolean;
 }
 
-interface IDeclaratorNode : IASTNode {
-    val type: ITypeNode
+//interface IDeclaratorNode : IASTNode {
+//    val type: ITypeNode
+//}
+
+//interface INamedDeclaratorNode : IDeclaratorNode {
+//    val id: IIdentifierNode
+//}
+
+interface IVariableDeclarationNode : IDeclarationNode {
 }
 
-interface INamedDeclaratorNode : IDeclaratorNode {
-    val id: IIdentifierNode
+interface IFunctionDeclarationNode : IDeclarationNode {
 }
 
-interface IVariableDeclaratorNode : INamedDeclaratorNode {
-    val initializer: IExpressionNode?
+interface ITypeDefDeclarationNode : IDeclarationNode {
 }
 
-interface IFunctionDeclaratorNode : INamedDeclaratorNode {
-    val defaultParamCount: Int
-}
-
-interface ITypeDefDeclaratorNode : INamedDeclaratorNode {
-}
-
-interface IAbstractDeclaratorNode : IDeclaratorNode {
-    val initializer: IExpressionNode?
-}
+//interface IAbstractDeclaratorNode : IDeclaratorNode {
+//    val initializer: IExpressionNode?
+//}
 
 interface IDeclarationSequenceNode : IDeclarationNode {
-    val typeSpecifier: ITypeNode
-    val declarations: List<IDeclaratorNode>
+    val declarations: List<IDeclarationNode>
 }
 
 interface IAsmStatementNode : IStatementNode {
@@ -308,6 +296,5 @@ interface IImplicitCastExpressionNode : IExpressionNode {
 interface ITypeCastExpressionNode : IExpressionNode {
     val castType: org.derilh.core.CastMethod
     val explicit: Boolean
-    val declaratorNode: IDeclaratorNode
     val operand: IExpressionNode
 }

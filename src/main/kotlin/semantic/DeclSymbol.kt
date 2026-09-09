@@ -98,7 +98,6 @@ sealed class DeclSymbol(
         parentSymbol: DeclSymbol,
         qualifiers: FunctionQualifiers,
         isBuiltin: Boolean,
-        val isExplicit: Boolean,
         defaultParamsCount: Int
     ) : FunctionDecl(name, parentSymbol, qualifiers, isMethod = true, isBuiltin, defaultParamsCount)
 
@@ -115,8 +114,8 @@ sealed class DeclSymbol(
             return FunctionDecl(name, parentSymbol, qualifiers, isMethod = false, isBuiltin = false, defaultParamCount)
         }
 
-        fun constructorDecl(name: String, parentSymbol: DeclSymbol, qualifiers: FunctionQualifiers, isExplicit: Boolean, defaultParamCount: Int): ConstructorDecl {
-            return ConstructorDecl(name, parentSymbol, qualifiers, isBuiltin = false, isExplicit, defaultParamCount)
+        fun constructorDecl(name: String, parentSymbol: DeclSymbol, qualifiers: FunctionQualifiers, defaultParamCount: Int): ConstructorDecl {
+            return ConstructorDecl(name, parentSymbol, qualifiers, isBuiltin = false, defaultParamCount)
         }
 
         fun builtinOpFunction(name: String, funcType: SemanticType.Function): OperatorFunctionDecl {

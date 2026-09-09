@@ -6,7 +6,6 @@ import org.derilh.ast.ExpressionNode
 import org.derilh.ast.IdentifierNode
 import org.derilh.ast.RootNode
 import org.derilh.ast.StatementNode
-import org.derilh.ast.TypeNode
 import org.derilh.ast.api.IASTNode
 import org.derilh.core.CharPrefix
 import org.derilh.exceptions.ProblemLevel
@@ -74,13 +73,12 @@ class Printer(val source: String) {
                 "  ${loc.line} |$line\n" +
                 "  ${" ".repeat(loc.line.toString().length)}  |${" ".repeat(loc.column - 1)}${"^".withColor(LITERAL_COLOR)}"
 
+        println(outStr)
         if(e.trace != null) {
             for (elem in e.trace) {
                 println("${ANSI_RED}${elem}${ANSI_RESET}")
             }
         }
-        println(outStr)
-
     }
 
     fun printException(e: SemanticProblem) {
@@ -280,7 +278,7 @@ class Printer(val source: String) {
             is DeclarationNode -> ANSI_BLUE
             is StatementNode -> ANSI_CYAN
             is ExpressionNode -> ANSI_YELLOW
-            is TypeNode -> ANSI_GREEN
+//            is TypeNode -> ANSI_GREEN
             is IdentifierNode -> ANSI_RED
             else -> ANSI_RESET
         }

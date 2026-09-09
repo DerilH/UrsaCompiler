@@ -12,10 +12,12 @@ import org.derilh.core.FunctionQualifiers
 import org.derilh.core.Operator
 import org.derilh.core.Precedence
 import org.derilh.core.PrimitiveTypeKind
-import org.derilh.core.RefQualifier
 import org.derilh.core.SourceLocation
 import org.derilh.core.Symbol
 import org.derilh.core.AccessSpecifier
+import org.derilh.core.ICVQualifier
+import org.derilh.core.INoExceptSpecifier
+import org.derilh.core.IRefQualifier
 import org.derilh.core.OpResult
 import org.derilh.core.Options
 import org.derilh.core.getAsOrElse
@@ -33,12 +35,14 @@ import org.derilh.lexer.IntToken
 import org.derilh.lexer.KeywordToken
 import org.derilh.lexer.StringLiteralToken
 import org.derilh.lexer.OperatorToken
-import org.derilh.lexer.SymbolToken
 import org.derilh.lexer.Token
 import org.derilh.lexer.ValueToken
-import org.derilh.semantic.SemanticType
 import org.derilh.semantic.analyzer.SemanticAnalyzer
+import org.derilh.util.ErrorHelper
 import org.derilh.util.ErrorHelper.Companion.getStackTrace
+import semantic.Declarator
+import semantic.DeclaratorChunk
+import semantic.TypeId
 
 class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: Options) {
     private var position: Int = 0
@@ -59,12 +63,10 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return ParseResult(problems, root)
     }
 
-    private fun errorType(message: String, token: Token? = null): ErrorTypeNode {
-        val t = token ?: currentToken()
-        problems[ProblemLevel.ERROR]!!.add(SyntaxProblem(message, ProblemLevel.ERROR, t.location, getStackTrace(options)))
-        return ErrorTypeNode(t.location)
+    private fun error(message: String, location: SourceLocation): RecoveryStatementNode {
+        problems[ProblemLevel.ERROR]!!.add(SyntaxProblem(message, ProblemLevel.ERROR, location, getStackTrace(options)))
+        return RecoveryStatementNode(location)
     }
-
 
     private fun error(message: String, token: Token? = null): RecoveryStatementNode {
         val t = token ?: currentToken()
@@ -145,23 +147,121 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return expression
     }
 
+    private fun tryParseSimpleDeclOrFunctionDef(): StatementNode? {
+        val spec = tryParseDeclSpecSeq() ?: return null;
+        if (!spec.hasTypeSpec()) return error("Expected type specifier", spec.location);
+
+        val declarators = parseInitDeclaratorList();
+        if (declarators.isEmpty()) {
+            val el = spec.getElaborated()
+            if (el != null) {
+                resolveElaborated(el, false);
+                return el;
+            } else return error("Expected identifier", currentToken())
+        }
+
+        if (declarators.size == 1 && declarators.first().isFunctionDeclarator()) {
+            return tryParseFunctionDefinition(spec, declarators.first());
+        }
+
+        val list = if (spec.isTypedef) {
+            parseTypeDefDeclaration(spec, declarators);
+        } else {
+            buildList {
+                for (decl in declarators) {
+                    if (decl.isFunctionDeclarator()) {
+                        add(parseFunctionDeclaration(spec, decl) ?: continue);
+                    } else {
+                        add(parseVarDeclaration(spec, decl) ?: continue);
+                    }
+                }
+            }
+        }
+
+        return if (list.size == 1) list.first() else DeclarationSequenceNode(spec, list, spec.location).also { parseSeparator() }
+    }
+
+    private fun parseVarDeclaration(spec: DeclSpecifierSeq, declarators: Declarator): VariableDeclarationNode? {
+        if (declarators.id == null) {
+            error("Expected identifier for var declaration", declarators.location)
+            return null;
+        }
+        var decl = sema.resolveSymbolsLocal(declarators.id.name, sema.scope).getOrNull() as? DeclSymbol.VariableDecl
+        if (decl == null) {
+            decl = DeclSymbol.variable(declarators.id.name, sema.scope.ownerSymbol)
+            decl.astNode = declarators.id;
+            sema.scope.define(decl).ifFailure(sema::error)
+        } else sema.error("Variable ${declarators.id}, already defined in this scope", declarators.id)
+        return VariableDeclarationNode(spec, declarators, declarators.id.location).also {
+            it.varDecl = decl;
+            decl.astNode = it;
+        }
+    }
+
+    private fun parseFunctionDeclaration(spec: DeclSpecifierSeq, declarators: Declarator): FunctionDeclarationNode? {
+        var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
+        val classDecl = sema.scope.findCurrentClass();
+        val funDeclarator = declarators.chunks.last() as DeclaratorChunk.Function;
+        val defaultParamCount = funDeclarator.params.count { it.init != null }
+        if (declarators.id == null) {
+            error("Expected identifier for function declaration", declarators.location)
+            return null;
+        }
+
+
+        val isCtor = declarators.id.name == classDecl?.name;
+        val decl = if (isCtor) DeclSymbol.constructorDecl(declarators.id.name, classDecl, funDeclarator.functionQualifiers, defaultParamCount)
+        else DeclSymbol.FunctionDecl(declarators.id.name, sema.scope.ownerSymbol, funDeclarator.functionQualifiers, classDecl != null, isBuiltin = false, defaultParamCount)
+
+
+        decl.astNode = declarators.id;
+        overloadSet = sema.scope.define(decl).getAsOrElse { sema.error(it); null }
+        val node = if (isCtor) {
+            ConstructorDeclarationNode(spec, declarators, declarators.id.location);
+        } else {
+            FunctionDeclarationNode(spec, declarators, declarators.id.location);
+        }
+
+
+        decl.astNode = node;
+        node.functionDecl = decl
+        node.overloadSet = overloadSet;
+        return node;
+    }
+
+    private fun parseTypeDefDeclaration(spec: DeclSpecifierSeq, declarators: List<Declarator>): List<DeclarationNode> {
+        validateTypeDef(spec);
+        return buildList {
+            for (declarator in declarators) {
+                if (declarator.isAbstract()) {
+                    error("Expected non-abstract declrator in typedef", declarator.location)
+                    continue;
+                }
+                var decl = sema.resolveSymbolsUnqualified(declarator.id!!.name, sema.scope).getOrNull() as? DeclSymbol.TypedefDecl
+                if (decl == null) {
+                    decl = DeclSymbol.typedef(declarator.id.name, sema.scope.ownerSymbol)
+                    sema.scope.define(decl).ifFailure(sema::error)
+                } else sema.error("Typedef ${declarator.id.toDisplayString()}, already defined in this scope", declarator.id)
+                add(TypeDefStatementNode(spec, declarator, currentToken().location).also {
+                    decl.astNode = it;
+                })
+            }
+        }
+    }
+
     private fun tryParseCStyleCast(): TypeCastExpressionNode? {
         val lastPos = position
         val location = currentToken().location
-        try {
-            consume(Symbol.LPAREN)
-            val type = parseType();
-            val declarator = parseDeclarator(type)
-            if (declarator !is AbstractDeclaratorNode) {
-                error("Expected abstract declarator for cstyle cast", currentToken())
-            }
-            consume(Symbol.RPAREN)
-            val expression = parseExpression(Precedence.UNARY)
-            return TypeCastExpressionNode(CastMethod.CSTYLE, true, declarator, expression, location)
-        } catch (e: Exception) {
+        consume(Symbol.LPAREN)
+        val typeId = tryParseTypeId() ?: run {
+            position = lastPos;
+            return null;
         }
-        position = lastPos
-        return null
+        validateTypeId(typeId);
+
+        consume(Symbol.RPAREN)
+        val expression = parseExpression(Precedence.UNARY)
+        return TypeCastExpressionNode(CastMethod.CSTYLE, true, typeId, expression, location)
     }
 
     private fun parseIfStatement(): IfStatementNode {
@@ -223,8 +323,9 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
         val scope = Scope(sema.scope, null)
         return sema.withScope(scope) {
-            val init = if (isTypeToken()) {
-                listOf(parseDeclarationSeq())
+            val decls = tryParseSimpleDeclOrFunctionDef();
+            val init = if (decls != null) {
+                listOf(decls);
             } else if (currentToken() isA Symbol.SEPARATOR) {
                 parseSeparator()
                 listOf()
@@ -236,8 +337,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             val increment = parseExpressionList()
             consume(Symbol.RPAREN)
 
-            var body: StatementNode? = tryParseStmtOrSingleExpression();
-
+            val body: StatementNode? = tryParseStmtOrSingleExpression();
 
             ForStatementNode(init, condition, increment, body, location).also {
                 it.scope = scope;
@@ -297,92 +397,32 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return ReturnStatementNode(expr, location)
     }
 
-    private fun parseDeclarationSeq(
-        type: TypeNode? = null,
-        declarators: List<DeclaratorNode>? = null
-    ): DeclarationSequenceNode {
-        val location = currentToken().location
-        val type = type ?: parseType()
-        val decls = declarators ?: parseDeclaratorList(type)
-        return DeclarationSequenceNode(type, decls, location).also { parseSeparator() }
-    }
-
     //TODO: Add static functions in class
-    private fun parseDeclarator(baseType: TypeNode, defineInScope: Boolean = true, isTypeDef: Boolean = false): DeclaratorNode {
-        val location = currentToken().location
-        val (id, finalType) = parseDeclaratorInternal(baseType)
-        if(isTypeDef && id != null) {
-            if (id is QualifiedIdentifierNode) {
-                error("Expected unqualified identifier for typedef")
-            }
-            var decl: DeclSymbol.TypedefDecl? = null;
-            if(defineInScope) {
-                decl = sema.resolveSymbolsUnqualified(id.name, sema.scope).getOrNull() as? DeclSymbol.TypedefDecl
-                if (decl == null) {
-                    decl = DeclSymbol.typedef(id.name, sema.scope.ownerSymbol)
-                    decl.astNode = id;
-                    sema.scope.define(decl).ifFailure(sema::error)
-                } else sema.error("Typedef ${id}, already defined in this scope", id)
-            }
-            return TypeDefDeclaratorNode(id, finalType, location).also {
-                if(decl != null) {
-                    it.decl = decl;
-                    decl.astNode = it;
-                }
-            }
-        }
-        if (finalType is FunctionTypeNode && id != null) {
-            var decl: DeclSymbol.FunctionDecl? = null;
-            var overloadSet: DeclSymbol.FunctionOverloadSet? = null;
-            if (defineInScope) {
-                val classDecl = sema.scope.findCurrentClass();
-                val defaultParamCount = finalType.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
-                decl = DeclSymbol.FunctionDecl(id.name, sema.scope.ownerSymbol, finalType.qualifiers, classDecl != null, isBuiltin = false, defaultParamCount)
-                decl.astNode = id;
-                overloadSet = sema.scope.define(decl).getAsOrElse { sema.error(it); null }
-                decl.scope = Scope(sema.scope, decl)
-            } else decl = null;
-            return FunctionDeclaratorNode(id, finalType, location).also {
-                if (decl != null) {
-                    decl.astNode = it
-                    it.functionDecl = decl
-                    it.overloadSet = overloadSet;
-                }
-            }
-        }
-
-        val hasAssign = consume(Operator.ASSIGN, false);
-
-        val initializer = if (currentToken() isA Symbol.BEGIN) parseInitializerList();
-        else if (hasAssign) parseExpression()
-        else null
-
-
-        var decl: DeclSymbol.VariableDecl? = null;
-        if (id == null) {
-            return AbstractDeclaratorNode(finalType, initializer, location);
-        }
-        if (defineInScope) {
-            decl = sema.resolveSymbolsLocal(id, sema.scope).getOrNull() as? DeclSymbol.VariableDecl
-            if (decl == null) {
-                decl = DeclSymbol.variable(id.name, sema.scope.ownerSymbol)
-                decl.astNode = id;
-                sema.scope.define(decl).ifFailure(sema::error)
-            } else sema.error("Variable ${id}, already defined in this scope", id)
-        }
-        return VariableDeclaratorNode(id, finalType, initializer, location).also {
-            if (decl != null) {
-                it.varDecl = decl;
-                decl.astNode = it;
-            }
-        }
+//    baseType: TypeNode, defineInScope: Boolean = true, isTypeDef: Boolean = false
+    private fun tryParseNewDeclarator(): Declarator? {
+        val loc = currentToken().location
+        val (id, chunks) = tryParseDeclaratorChunks(newDeclarator = true) ?: return null;
+        return Declarator(id, null, chunks, loc);
     }
 
-    private fun parseInitializerList(): InitializerListExpressionNode {
-        val location = currentToken().location
-        val args = parseArguments(true)
-        return InitializerListExpressionNode(args.arguments, location)
+    private fun tryParseInitDeclarator(): Declarator? {
+        val loc = currentToken().location
+        val (id, chunks) = tryParseDeclaratorChunks() ?: return null;
+        val init = if (chunks.lastOrNull() is DeclaratorChunk.Function) null else tryParseInitializer();
+        return Declarator(id, init, chunks, loc);
     }
+
+    private fun tryParseDeclarator(): Declarator? {
+        val loc = currentToken().location
+        val (id, chunks) = tryParseDeclaratorChunks() ?: return null;
+        return Declarator(id, null, chunks, loc);
+    }
+
+//    private fun parseInitializerList(): InitListExpressionNode {
+//        val location = currentToken().location
+//        val args = parseArguments(true)
+//        return InitListExpressionNode(args.arguments, location)
+//    }
 
     private fun findPostfixDeclarator(): Int {
         var pos = position;
@@ -402,100 +442,85 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return pos
     }
 
-    private fun parseDeclaratorInternal(baseType: TypeNode): Pair<IdentifierNode?, TypeNode> {
-        if (currentToken().oneOf(listOf(Symbol.COMMA, Symbol.RPAREN))) {
-            return Pair(null, baseType)
-        }
-        var typeAfterPrefixes = baseType
+    private fun tryParseDeclaratorChunks(newDeclarator: Boolean = false): Pair<IdentifierNode?, List<DeclaratorChunk>>? {
+        val mark = position;
+        val outerPrefixes = mutableListOf<DeclaratorChunk>()
+
         while (true) {
-            typeAfterPrefixes = when {
-                currentToken() isA Operator.POINTER -> parsePointerType(typeAfterPrefixes)
-
-                currentToken() isA Operator.AND -> parseRValueReferenceType(typeAfterPrefixes)
-
-                currentToken() isA Operator.AMP -> parseReferenceType(typeAfterPrefixes)
-                currentToken() is IdToken -> {
-                    val type = tryParseMemberPointerType(typeAfterPrefixes)
-                    type ?: break
-                }
-
-                else -> break
-            }
+            val ptr = tryParsePtrDeclarator() ?: break
+            outerPrefixes.add(ptr)
         }
 
-
-        var id: IdentifierNode? = null
+        var identifier: IdentifierNode? = null
+        var innerChunks = mutableListOf<DeclaratorChunk>()
 
         when {
             currentToken() isA Symbol.LPAREN -> {
+                if (newDeclarator) return null;
+                val beforeTry = position;
+                if (tryParseFunctionDeclarator() != null) {
+                    position = beforeTry;
+                } else {
+                    position = beforeTry;
+                    consume(Symbol.LPAREN)
 
-                var pos = findPostfixDeclarator();
-                if (pos != -1) {
-                    val lastPos = position;
-                    position = pos;
-                    while (true) {
-                        typeAfterPrefixes = when {
-                            currentToken() isA Symbol.LBRACKET -> parseArrayType(typeAfterPrefixes)
-                            currentToken() isA Symbol.LPAREN -> parseFunctionType(typeAfterPrefixes)
-                            else -> break
-                        }
+                    val innerResult = tryParseDeclaratorChunks()
+                    if (innerResult == null) {
+                        position = mark
+                        return null
                     }
-                    pos = position;
-                    position = lastPos;
+
+                    if (!consume(Symbol.RPAREN, false)) {
+                        position = mark
+                        return null
+                    }
+
+                    identifier = innerResult.first
+                    innerChunks.addAll(innerResult.second)
                 }
-                position++
-                val decl = parseDeclaratorInternal(typeAfterPrefixes)
-                consume(Symbol.RPAREN)
-//                    .also { consume(Symbol.RPAREN) };
-                position = if (pos != -1) pos else position
-                return decl
             }
 
             currentToken() is IdToken -> {
-                id = parseIdentifier()
-            }
-
-            else -> {
-                id = null
+                identifier = parseIdentifier()
             }
         }
 
-
+        val postfixes = mutableListOf<DeclaratorChunk>()
         while (true) {
-            typeAfterPrefixes = when {
-                currentToken() isA Symbol.LBRACKET -> parseArrayType(typeAfterPrefixes)
-                currentToken() isA Symbol.LPAREN -> parseFunctionType(typeAfterPrefixes)
+            when {
+                currentToken() isA Symbol.LBRACKET -> {
+                    val arrayChunk = parseArrayDeclarator()
+                    postfixes.add(arrayChunk)
+                }
+
+                currentToken() isA Symbol.LPAREN -> {
+                    postfixes += tryParseFunctionDeclarator() ?: break
+                }
+
                 else -> break
             }
         }
 
-        return Pair(id, typeAfterPrefixes)
-    }
+        val finalChunks = mutableListOf<DeclaratorChunk>()
+        finalChunks.addAll(innerChunks)
+        finalChunks.addAll(postfixes)
+        finalChunks.addAll(outerPrefixes)
 
-    private fun checkValidDeclaratorToken() {
-        if (!currentToken().oneOf(
-                listOf(
-                    Operator.POINTER,
-                    Operator.AND,
-                    Operator.AMP,
-                    Symbol.LPAREN
-                )
-            ) && currentToken() !is IdToken
-        ) {
-            error("Invalid declarator token", currentToken())
+        if (identifier == null && finalChunks.isEmpty()) {
+            position = mark
+            return null
         }
+
+        return identifier to finalChunks;
     }
 
-    private fun parseDeclaratorList(baseType: TypeNode, defineInScope: Boolean = true, isTypeDef: Boolean = false): List<DeclaratorNode> {
-        val declarators = mutableListOf<DeclaratorNode>()
+    private fun parseInitDeclaratorList(): List<Declarator> {
+        val declarators = mutableListOf<Declarator>()
         while (true) {
-            declarators += parseDeclarator(baseType, defineInScope, isTypeDef)
+            declarators += tryParseInitDeclarator() ?: break
             if (currentToken() isA Symbol.COMMA) position++
             else if (currentToken() isA Symbol.SEPARATOR || currentToken() isA Symbol.BEGIN) {
                 break
-            } else {
-                error("Invalid token provided after declarator", currentToken())
-                break;
             }
         }
         return declarators;
@@ -581,47 +606,24 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         }
     }
 
-    private fun parseNewExpression(): NewExpressionNode {
+    private fun parseNewExpression(): ExpressionNode {
         val location = currentToken().location
         consume(Keyword.NEW)
 
         val placementArgs = if (consume(Symbol.LPAREN, false)) {
             position++
             val list = parseExpressionList()
-            consume(Symbol.RPAREN, false)
+            consume(Symbol.RPAREN)
             list
-        } else listOf()
+        } else null
 
 
-        val type = if (currentToken() isA Symbol.LPAREN) {
-            parseDeclarator(parseType()).type
-        } else parseNewExprTypeId(parseType())
-
-        var initializerList: InitializerListExpressionNode? = null;
-
-        if (currentToken() isA Symbol.LPAREN || currentToken() isA Symbol.BEGIN) {
-            val initLocation = currentToken().location
-            position++
-            initializerList = InitializerListExpressionNode(parseExpressionList(), initLocation);
-
-            if (currentToken() notA Symbol.RPAREN && currentToken() notA Symbol.END) error("Expected ')' after new type")
-            position++
+        val type = tryParseNewTypeId() ?: return errorExpr("Expected type id in new expression");
+        type.declSpecifier.getElaborated()?.let {
+            resolveElaborated(it, false);
         }
-        return NewExpressionNode(placementArgs, initializerList, type, location)
-    }
-
-    private fun parseNewExprTypeId(baseType: TypeNode? = null): TypeNode {
-        var type = baseType ?: parseType()
-
-        while (currentToken() isA Operator.POINTER || currentToken() isA Operator.AMP) {
-            type = parsePointerType(type)
-        }
-
-        while (currentToken() isA Symbol.LBRACKET) {
-            type = parseArrayType(type)
-        }
-
-        return type
+        val initializerList = tryParseNewInitializer();
+        return NewExpressionNode(placementArgs, type, initializerList, location)
     }
 
     private fun parseSizeOfExpression(): SizeofExpressionNode {
@@ -631,13 +633,14 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         if (currentToken() notA Symbol.LPAREN) error("Invalid sizeof expression provided, expected '(' for expression")
         position++
 
-        val expression = tryParseType() ?: parseExpression()
+        val typeId = tryParseTypeId()?.also { validateTypeId(it) }
+        val expression = if (typeId != null) null else parseExpression()
         if (expression is EmptyExpressionNode) {
             errorExpr("Invalid sizeof expression provided, expected type or expression")
         }
         if (currentToken() notA Symbol.RPAREN) error("Invalid sizeof expression provided, expected ')' for expression")
         position++
-        return SizeofExpressionNode(expression, location)
+        return SizeofExpressionNode(typeId, expression, location)
     }
 
     private fun parsePrefixUnaryExpression(): UnaryExpressionNode {
@@ -711,162 +714,362 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return expressions[0]!!.location!!.copy(length = length)
     }
 
-    private fun isTypeToken(): Boolean {
-        val basePos = position;
-        val baseProblems = problems.mapValues { it.value.size }
-        var isType = false;
-        try {
-            parseType()
-            isType = problems.all { (level, list) -> list.size == baseProblems[level] }
-        } catch (e: Exception) {
-            isType = false
-        } finally {
-            // Rollback problems added during speculative parsing
-            problems.forEach { (level, list) ->
-                val prevSize = baseProblems[level] ?: 0
-                while (list.size > prevSize) {
-                    list.removeAt(list.size - 1)
-                }
-            }
+//    private fun isTypeToken(): Boolean {
+//        val basePos = position;
+//        val baseProblems = problems.mapValues { it.value.size }
+//        var isType = false;
+//        try {
+//            parseDeclSpecifierSeq()
+//            isType = problems.all { (level, list) -> list.size == baseProblems[level] }
+//        } catch (e: Exception) {
+//            isType = false
+//        } finally {
+//            // Rollback problems added during speculative parsing
+//            problems.forEach { (level, list) ->
+//                val prevSize = baseProblems[level] ?: 0
+//                while (list.size > prevSize) {
+//                    list.removeAt(list.size - 1)
+//                }
+//            }
+//        }
+//        position = basePos;
+//        return isType
+//    }
+
+//    private fun tryParseType(): TypeNode? {
+//        val basePos = position;
+//        val baseProblems = problems.mapValues { it.value.size }
+//        try {
+//            val type = parseDeclSpecifierSeq()
+//            if (problems.all { (level, list) -> list.size == baseProblems[level] }) {
+//                return type
+//            }
+//        } catch (e: Exception) {
+//        }
+//        // Rollback problems
+//        problems.forEach { (level, list) ->
+//            val prevSize = baseProblems[level] ?: 0
+//            while (list.size > prevSize) {
+//                list.removeAt(list.size - 1)
+//            }
+//        }
+//        position = basePos;
+//        return null;
+//    }
+
+    private fun tryParseStorageClassSpec(): StorageClassSpecifier? {
+        val tok = currentToken()
+        return when {
+            tok isA Keyword.EXTERN -> StorageClassSpecifier.Extern(tok.location)
+            tok isA Keyword.STATIC -> StorageClassSpecifier.Static(tok.location)
+            tok isA Keyword.THREAD_LOCAL -> StorageClassSpecifier.ThreadLocal(tok.location)
+            tok isA Keyword.MUTABLE -> StorageClassSpecifier.Mutable(tok.location)
+            else -> null
         }
-        position = basePos;
-        return isType
     }
 
-    private fun tryParseType(): TypeNode? {
-        val basePos = position;
-        val baseProblems = problems.mapValues { it.value.size }
-        try {
-            val type = parseType()
-            if (problems.all { (level, list) -> list.size == baseProblems[level] }) {
-                return type
-            }
-        } catch (e: Exception) {
+    private fun tryParseFunctionSpec(): FunctionSpecifier? {
+        val tok = currentToken()
+        return when {
+            tok isA Keyword.VIRTUAL -> FunctionSpecifier.Virtual(tok.location)
+            else -> tryParseExplicitSpec();
         }
-        // Rollback problems
-        problems.forEach { (level, list) ->
-            val prevSize = baseProblems[level] ?: 0
-            while (list.size > prevSize) {
-                list.removeAt(list.size - 1)
-            }
-        }
-        position = basePos;
-        return null;
     }
 
-    private fun parseType(): TypeNode {
-        val location = currentToken().location
-        var isConst = false
-        var isVolatile = false
-        var isSigned: Boolean? = null
-        var isShort = false
-        var longCount = 0
-        var typeId: Any? = null
+    private fun tryParseExplicitSpec(): FunctionSpecifier.Explicit? {
+        val loc = currentToken().location
+        if (currentToken() isA Keyword.EXPLICIT) {
+            val expr = if (currentToken() isA Symbol.LPAREN) {
+                parseExpression();
+            } else null;
+            return FunctionSpecifier.Explicit(expr, loc);
+        } else return null;
+    }
 
-        fun assertFirstId() {
-            if (typeId != null) {
-                error("Cannot use multiple ids in type")
+    private fun tryParseElaboratedTypeSpec(): ClassDeclarationNode? {
+        return if (currentToken() oneOf getClassKeys()) {
+            val node = parseClass()
+            if (node is ClassDeclarationNode)
+                node
+            else {
+                error("Expected elaborated specifier, not a class definition", currentToken())
+                null
             }
-        }
+        } else null;
+    }
 
-        fun hasPrimitive(): Boolean {
-            return isSigned != null || isShort || longCount != 0
-        }
-
-        while (true) {
-            val token = currentToken()
-            var advance = true;
-            when {
-                token isA Keyword.AUTO || token isA Keyword.DECLTYPE -> typeId = assertFirstId().let { token }
-                typeId == null && !hasPrimitive() && (token is IdToken || token isA Operator.NAMESPACE) -> {
-                    val id = parseIdentifier();
-                    advance = false;
-
-                    val decls = sema.resolveSymbols(id, sema.scope, false).getOrNull();
-                    if (decls is DeclSymbol.ClassDecl || decls is DeclSymbol.TypedefDecl) {
-                        typeId = assertFirstId().let { id }
-                    } else throw IllegalStateException("Unknown type provided: $id")
+    private fun tryParseSimpleTypeSpec(hasId: Boolean): SimpleTypeSpecifier? {
+        val tok = currentToken()
+        return if (tok is KeywordToken) {
+            when (tok.value) {
+                Keyword.CHAR, Keyword.CHAR8_T, Keyword.CHAR16_T, Keyword.CHAR32_T,
+                Keyword.WCHAR_T, Keyword.BOOL, Keyword.SHORT, Keyword.INT,
+                Keyword.LONG, Keyword.SIGNED, Keyword.UNSIGNED, Keyword.FLOAT,
+                Keyword.DOUBLE, Keyword.VOID -> {
+                    consume(tok.value);
+                    SimpleTypeSpecifier.Keyword(tok.value, tok.location)
                 }
 
-                token isA Keyword.UNSIGNED -> {
-                    if (isSigned != null) error("Cannot use multiple sign qualifiers")
-                    isSigned = false;
+                else -> tryParseDecltypeOrPlaceholderSpec()
+            }
+        } else {
+            tryParseIdTypeSpec(hasId)
+        }
+    }
+
+    private fun tryParseIdTypeSpec(hasId: Boolean): SimpleTypeSpecifier.Id? {
+        val mark = position;
+        if (currentToken() !is IdToken || hasId) return null;
+        val id = parseIdentifier();
+        val decls = sema.resolveSymbols(id, sema.scope, false).getOrNull();
+        if (decls !is DeclSymbol.ClassDecl && decls !is DeclSymbol.TypedefDecl) {
+            position = mark
+            return null;
+        }
+        return SimpleTypeSpecifier.Id(id, id.location!!);
+    }
+
+    private fun tryParseTypenameSpec(): TypenameSpecifier? {
+        val loc = currentToken().location;
+        return if (consume(Keyword.TYPENAME, false)) {
+            TypenameSpecifier(parseIdentifier(), loc);
+        } else null;
+    }
+
+    private fun tryParseTypeSpec(hasId: Boolean): TypeSpecifier? {
+        return tryParseSimpleTypeSpec(hasId) ?: tryParseElaboratedTypeSpec() ?: tryParseCVQual() ?: tryParseTypenameSpec();
+    }
+
+    private fun tryParseDefTypeSpec(hasId: Boolean): TypeSpecifier? {
+        if (currentToken() oneOf getClassKeys()) {
+            return parseClass() as TypeSpecifier;
+        }
+        return tryParseTypeSpec(hasId);
+    }
+
+    private fun parseCvQualSeq(): List<CVQualifier> {
+        return buildList {
+            while (true) {
+                add(tryParseCVQual() ?: break);
+            }
+        }
+    }
+
+    private fun tryParseCVQual(): CVQualifier? {
+        val loc = currentToken().location
+        return when {
+            consume(Keyword.CONST, false) -> CVQualifier.Const(loc);
+            consume(Keyword.VOLATILE, false) -> CVQualifier.Volatile(loc);
+            //TODO: Add support for restrict expansion cv
+            else -> null;
+        }
+    }
+
+    private fun tryParseDecltypeOrPlaceholderSpec(): SimpleTypeSpecifier? {
+        val loc = currentToken().location
+        return if (consume(Keyword.DECLTYPE, false)) {
+            if (tokens[position + 2] isA Keyword.AUTO) {
+                consume(Symbol.LPAREN)
+                consume(Keyword.AUTO)
+                consume(Symbol.RPAREN)
+                SimpleTypeSpecifier.Placeholder(true, loc);
+            } else {
+                SimpleTypeSpecifier.Decltype(parseExpression(), loc);
+            }
+        } else if (consume(Keyword.AUTO, false)) {
+            SimpleTypeSpecifier.Placeholder(false, loc);
+        } else null
+    }
+
+    private fun tryParseDeclSpec(hasId: Boolean): DeclSpecifier? {
+        val loc = currentToken().location
+        return tryParseDefTypeSpec(hasId) ?: tryParseStorageClassSpec() ?: tryParseFunctionSpec() ?: when {
+            consume(Keyword.FRIEND, false) -> DeclSpecifier.Friend(loc)
+            consume(Keyword.TYPEDEF, false) -> DeclSpecifier.Typedef(loc)
+            consume(Keyword.CONSTEXPR, false) -> ConstExprSpecifier.Constexpr(loc)
+            consume(Keyword.CONSTEVAL, false) -> ConstExprSpecifier.Consteval(loc)
+            consume(Keyword.CONSTINIT, false) -> ConstExprSpecifier.Constinit(loc)
+            consume(Keyword.INLINE, false) -> DeclSpecifier.Inline(loc)
+            else -> null;
+        }
+    }
+
+    private fun tryParseDeclSpecSeq(base: DeclSpecifierSeq? = null): DeclSpecifierSeq? {
+        //TODO: add attribute support
+        val loc = currentToken().location
+        val spec = tryParseDeclSpec(base?.hasDeclaredId ?: false) ?: return base;
+
+        var base = base ?: DeclSpecifierSeq(location = loc);
+        fun checkDuplicate(value: Boolean) {
+            if (value) {
+                sema.error(ErrorHelper.duplicateSpec(spec, loc))
+            }
+        }
+
+        base = when (spec) {
+            is DeclSpecifier.Friend -> {
+                checkDuplicate(base.isFriend)
+                base.copy(friendSpec = spec);
+            }
+
+            is DeclSpecifier.Typedef -> {
+                checkDuplicate(base.isTypedef)
+                base.copy(typedefSpec = spec);
+            }
+
+            is ConstExprSpecifier -> {
+                checkDuplicate(base.constexprSpec != null)
+                base.copy(constexprSpec = spec);
+            }
+
+            is DeclSpecifier.Inline -> {
+                checkDuplicate(base.isInline)
+                base.copy(inlineSpec = spec);
+            }
+
+            is StorageClassSpecifier -> {
+                val s = if (base.storageClassSpec != null) {
+                    base.storageClassSpec + spec
+                } else listOf(spec);
+                if (s.size > 1) {
+                    val isThreadLocal = s.any { it is StorageClassSpecifier.ThreadLocal };
+                    if (!isThreadLocal || s.none { it is StorageClassSpecifier.Extern || it is StorageClassSpecifier.Static }) {
+                        sema.error(ErrorHelper.duplicateSpec(spec, loc))
+                    }
                 }
-
-                token isA Keyword.SIGNED -> {
-                    if (isSigned != null) error("Cannot use multiple sign qualifiers")
-                    isSigned = true;
-                }
-
-                token isA Keyword.SHORT -> isShort = true
-                token isA Keyword.LONG -> longCount++
-                token isA Keyword.INT -> typeId = assertFirstId().let { PrimitiveTypeKind.INT }
-                token isA Keyword.CHAR -> typeId = assertFirstId().let { PrimitiveTypeKind.CHAR }
-                token isA Keyword.CHAR8_T -> typeId = assertFirstId().let { PrimitiveTypeKind.CHAR8_T }
-                token isA Keyword.CHAR16_T -> typeId = assertFirstId().let { PrimitiveTypeKind.CHAR16_T }
-                token isA Keyword.CHAR32_T -> typeId = assertFirstId().let { PrimitiveTypeKind.CHAR32_T }
-                token isA Keyword.WCHAR_T -> typeId = assertFirstId().let { PrimitiveTypeKind.WCHAR_T }
-                token isA Keyword.FLOAT -> typeId = assertFirstId().let { PrimitiveTypeKind.FLOAT }
-                token isA Keyword.DOUBLE -> typeId = assertFirstId().let { PrimitiveTypeKind.DOUBLE }
-                token isA Keyword.BOOL -> typeId = assertFirstId().let { PrimitiveTypeKind.BOOL }
-                token isA Keyword.VOID -> typeId = assertFirstId().let { PrimitiveTypeKind.VOID }
-                token isA Keyword.CONST -> isConst = true
-                token isA Keyword.VOLATILE -> isVolatile = true
-                else -> break
+                base.copy(storageClassSpec = s);
             }
 
-            if (advance) {
-                position++
+            is FunctionSpecifier -> {
+                checkDuplicate(base.funcSpec != null)
+                base.copy(funcSpec = spec);
+            }
+
+            is TypeSpecifier -> {
+                val s = if (base.typeSpecs != null) {
+                    base.typeSpecs + spec
+                } else listOf(spec);
+                base.copy(typeSpecs = s)
             }
         }
 
+        return tryParseDeclSpecSeq(base);
+    }
 
-        //Type resolving
-        fun assertNoPrimitives() {
-            if (hasPrimitive()) {
-                error("Cannot use primitive type qualifiers with given type")
-            }
-        }
-
-        if (typeId == null && hasPrimitive()) {
-            typeId = PrimitiveTypeKind.INT;
-        }
-
-        return when (typeId) {
-            is KeywordToken if typeId isA Keyword.AUTO -> AutoTypeNode(
-                isConst,
-                isVolatile,
-                location
-            ).also { assertNoPrimitives() }
-
-//            is KeywordToken if typeId isA Keyword.DECLTYPE -> DeclTypeTypeNode(
+//    private fun parseDeclSpecifierSeq(): DeclSpecifierSeq {
+//        val location = currentToken().location
+//        var isConst = false
+//        var isVolatile = false
+//        var isSigned: Boolean? = null
+//        var isShort = false
+//        var longCount = 0
+//        var typeId: Any? = null
+//
+//        fun assertFirstId() {
+//            if (typeId != null) {
+//                error("Cannot use multiple ids in type")
+//            }
+//        }
+//
+//        fun hasPrimitive(): Boolean {
+//            return isSigned != null || isShort || longCount != 0
+//        }
+//
+//        while (true) {
+//            val token = currentToken()
+//            var advance = true;
+//            when {
+//                token isA Keyword.AUTO || token isA Keyword.DECLTYPE -> typeId = assertFirstId().let { token }
+//                typeId == null && !hasPrimitive() && (token is IdToken || token isA Operator.NAMESPACE) -> {
+//                    val id = parseIdentifier();
+//                    advance = false;
+//
+//                    val decls = sema.resolveSymbols(id, sema.scope, false).getOrNull();
+//                    if (decls is DeclSymbol.ClassDecl || decls is DeclSymbol.TypedefDecl) {
+//                        typeId = assertFirstId().let { id }
+//                    } else throw IllegalStateException("Unknown type provided: $id")
+//                }
+//
+//                token isA Keyword.UNSIGNED -> {
+//                    if (isSigned != null) error("Cannot use multiple sign qualifiers")
+//                    isSigned = false;
+//                }
+//
+//                token isA Keyword.SIGNED -> {
+//                    if (isSigned != null) error("Cannot use multiple sign qualifiers")
+//                    isSigned = true;
+//                }
+//
+//                token isA Keyword.SHORT -> isShort = true
+//                token isA Keyword.LONG -> longCount++
+//                token isA Keyword.INT -> typeId = assertFirstId().let { PrimitiveTypeKind.INT }
+//                token isA Keyword.CHAR -> typeId = assertFirstId().let { PrimitiveTypeKind.CHAR }
+//                token isA Keyword.CHAR8_T -> typeId = assertFirstId().let { PrimitiveTypeKind.CHAR8_T }
+//                token isA Keyword.CHAR16_T -> typeId = assertFirstId().let { PrimitiveTypeKind.CHAR16_T }
+//                token isA Keyword.CHAR32_T -> typeId = assertFirstId().let { PrimitiveTypeKind.CHAR32_T }
+//                token isA Keyword.WCHAR_T -> typeId = assertFirstId().let { PrimitiveTypeKind.WCHAR_T }
+//                token isA Keyword.FLOAT -> typeId = assertFirstId().let { PrimitiveTypeKind.FLOAT }
+//                token isA Keyword.DOUBLE -> typeId = assertFirstId().let { PrimitiveTypeKind.DOUBLE }
+//                token isA Keyword.BOOL -> typeId = assertFirstId().let { PrimitiveTypeKind.BOOL }
+//                token isA Keyword.VOID -> typeId = assertFirstId().let { PrimitiveTypeKind.VOID }
+//                token isA Keyword.CONST -> isConst = true
+//                token isA Keyword.VOLATILE -> isVolatile = true
+//                else -> break
+//            }
+//
+//            if (advance) {
+//                position++
+//            }
+//        }
+//
+//
+//        //Type resolving
+//        fun assertNoPrimitives() {
+//            if (hasPrimitive()) {
+//                error("Cannot use primitive type qualifiers with given type")
+//            }
+//        }
+//
+//        if (typeId == null && hasPrimitive()) {
+//            typeId = PrimitiveTypeKind.INT;
+//        }
+//
+//        return when (typeId) {
+//            is KeywordToken if typeId isA Keyword.AUTO -> AutoTypeNode(
 //                isConst,
 //                isVolatile,
 //                location
 //            ).also { assertNoPrimitives() }
-            is KeywordToken if typeId isA Keyword.DECLTYPE -> TODO("Decltype is not supported yet")
-
-
-            is IdentifierNode -> {
-
-                DeclaredTypeNode(typeId, isConst, isVolatile, location).also { assertNoPrimitives() }
-            }
-            is PrimitiveTypeKind -> {
-                checkPrimitiveCombinations(typeId, isSigned, isShort, longCount)
-                val kind = resolvePrimitiveKind(typeId, isSigned, isShort, longCount == 1, longCount == 2)
-                        ?: run {
-                            error("Invalid type provided: $typeId")
-                            PrimitiveTypeKind.INT
-                        }
-                PrimitiveTypeNode(kind, isConst, isVolatile, location)
-            }
-
-            else -> {
-                throw IllegalStateException("Invalid type provided: $typeId")
-//                PrimitiveTypeNode(PrimitiveTypeKind.INT, isConst, isVolatile, location)
-            }
-        }
-    }
+//
+////            is KeywordToken if typeId isA Keyword.DECLTYPE -> DeclTypeTypeNode(
+////                isConst,
+////                isVolatile,
+////                location
+////            ).also { assertNoPrimitives() }
+//            is KeywordToken if typeId isA Keyword.DECLTYPE -> TODO("Decltype is not supported yet")
+//
+//
+//            is IdentifierNode -> {
+//
+//                DeclaredTypeNode(typeId, isConst, isVolatile, location).also { assertNoPrimitives() }
+//            }
+//
+//            is PrimitiveTypeKind -> {
+//                checkPrimitiveCombinations(typeId, isSigned, isShort, longCount)
+//                val kind = resolvePrimitiveKind(typeId, isSigned, isShort, longCount == 1, longCount == 2)
+//                        ?: run {
+//                            error("Invalid type provided: $typeId")
+//                            PrimitiveTypeKind.INT
+//                        }
+//                PrimitiveTypeNode(kind, isConst, isVolatile, location)
+//            }
+//
+//            else -> {
+//                throw IllegalStateException("Invalid type provided: $typeId")
+////                PrimitiveTypeNode(PrimitiveTypeKind.INT, isConst, isVolatile, location)
+//            }
+//        }
+//    }
 
     fun resolvePrimitiveKind(
         typeId: PrimitiveTypeKind,
@@ -938,21 +1141,20 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         }
     }
 
-    private fun parsePointerType(baseType: TypeNode): PointerTypeNode {
+    private fun tryParsePtrDeclarator(): DeclaratorChunk? {
         val location = currentToken().location
-        if (currentToken() notA Operator.POINTER) error("Expected '*' for pointer type")
-        position++;
+        val kind = when {
+            consume(Operator.POINTER, false) -> DeclaratorChunk.Ptr.Kind.Pointer
+            consume(Operator.AND, false) -> DeclaratorChunk.Ptr.Kind.RRef
+            consume(Operator.AMP, false) -> DeclaratorChunk.Ptr.Kind.LRef
+            else -> return tryParseMemberPtrDeclarator();
+        }
 
-        val constAndVol = findConstAndVolatile()
-        return PointerTypeNode(
-            baseType,
-            isConst = constAndVol.first,
-            isVolatile = constAndVol.second,
-            location = location
-        )
+        val cvSeq = parseCvQualSeq();
+        return DeclaratorChunk.Ptr(kind, cvSeq, location);
     }
 
-    private fun tryParseMemberPointerType(baseType: TypeNode): MemberPointerTypeNode? {
+    private fun tryParseMemberPtrDeclarator(): DeclaratorChunk.MemberPointer? {
         val lastPos = position
         val location = currentToken().location
         val namespace = mutableListOf<IdentifierNode>()
@@ -963,8 +1165,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         } else false
 
         var isPointer = false
-        var isConst = false
-        var isVolatile = false
+        var cvSeq: List<CVQualifier>? = null;
         var classIdNode: IdentifierNode? = null
 
         while (true) {
@@ -983,9 +1184,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
                 isPointer = true
                 position++
 
-                val (c, v) = findConstAndVolatile()
-                isConst = c
-                isVolatile = v
+                cvSeq = parseCvQualSeq();
 
                 namespace.removeLastOrNull()
                 classIdNode = if (namespace.isEmpty() && !isGlobal) {
@@ -1003,96 +1202,17 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         }
 
         if (isPointer && classIdNode != null) {
-            return MemberPointerTypeNode(classIdNode, baseType, isConst, isVolatile, location)
+            return DeclaratorChunk.MemberPointer(classIdNode, cvSeq ?: emptyList(), location)
         } else {
             position = lastPos
             return null
         }
     }
 
-    private fun parseReferenceType(baseType: TypeNode): ReferenceTypeNode {
-        val location = currentToken().location
-        if (currentToken() notA Operator.AMP) error("Expected '&' for reference type")
-        position++;
-
-        val constAndVol = findConstAndVolatile()
-        return ReferenceTypeNode(
-            baseType,
-            isConst = constAndVol.first,
-            isVolatile = constAndVol.second,
-            location = location
-        )
-    }
-
-    private fun parseRValueReferenceType(baseType: TypeNode): RValueReferenceTypeNode {
-        val location = currentToken().location
-        if (currentToken() notA Operator.AND) error("Expected '&' for reference type")
-        position++;
-
-        if (currentToken() isA Operator.AMP || currentToken() isA Operator.POINTER || currentToken() isA Operator.AND || currentToken() isA Symbol.LBRACKET || currentToken() isA Keyword.CONST) {
-            error("Invalid rvalue reference type provided, must be the last type")
-        }
-
-        val constAndVol = findConstAndVolatile()
-        return RValueReferenceTypeNode(
-            baseType,
-            isConst = constAndVol.first,
-            isVolatile = constAndVol.second,
-            location = location
-        )
-    }
-
-    //left -> isConst : right -> isVolatile
-    private fun findConstAndVolatile(): Pair<Boolean, Boolean> {
-
-        var isConst = false;
-        var isVolatile = false;
-
-        for (i in 0 until 2) {
-            if (currentToken() isA Keyword.CONST) {
-                if (isConst) error("Cannot use multiple const qualifiers")
-                isConst = true;
-                position++
-            } else if (currentToken() isA Keyword.VOLATILE) {
-                if (isVolatile) error("Cannot use multiple volatile qualifiers")
-                isVolatile = true;
-                position++
-            } else break;
-        }
-
-        return Pair(isConst, isVolatile)
-    }
-
     private fun parseFunctionQualifiers(): FunctionQualifiers {
-        var isConst = false
-        var isVolatile = false
-        var refQualifier = RefQualifier.NONE
-        var isNoexcept = false
-
-        while (true) {
-            if (currentToken() isA Keyword.CONST) {
-                if (isConst) error("Duplicate 'const' qualifier")
-                isConst = true
-                position++
-            } else if (currentToken() isA Keyword.VOLATILE) {
-                if (isVolatile) error("Duplicate 'volatile' qualifier")
-                isVolatile = true
-                position++
-            } else break
-        }
-
-        if (currentToken() isA Operator.AMP) {
-            refQualifier = RefQualifier.LVALUE
-            position++
-        } else if (currentToken() isA Operator.AND) {
-            refQualifier = RefQualifier.RVALUE
-            position++
-        }
-
-        if (currentToken() isA Keyword.NOEXCEPT) {
-            isNoexcept = true
-            position++
-        }
+        val cv = parseCvQualSeq();
+        val refQualifier = tryParseRefQual();
+        val noexceptSpec = tryParseNoExceptSpec();
 
         val token = currentToken()
         if (token isA Keyword.CONST || token isA Keyword.VOLATILE) {
@@ -1102,25 +1222,53 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             error("ref-qualifiers must appear BEFORE 'noexcept'", token)
         }
 
-        return FunctionQualifiers(isConst, isVolatile, refQualifier, isNoexcept)
+        return FunctionQualifiers(cv as List<ICVQualifier>, refQualifier, noexceptSpec)
     }
 
-    private fun parseFunctionType(type: TypeNode): FunctionTypeNode {
+    private fun tryParseRefQual(): IRefQualifier? {
+        val token = currentToken()
+        return when {
+            token isA Operator.AMP -> RefQualifier.LValue(token.location)
+            token isA Operator.AND -> RefQualifier.RValue(token.location)
+            else -> null
+        }
+    }
+
+    private fun tryParseNoExceptSpec(): INoExceptSpecifier? {
+        val loc = currentToken().location
+        if (consume(Keyword.NOEXCEPT, false)) return null;
+        val expr = if (consume(Symbol.LPAREN, false)) {
+            parseExpression().also { consume(Symbol.LPAREN) }
+        } else null;
+        return NoexceptSpecifier(expr, loc);
+    }
+
+    private fun tryParseFunctionDeclarator(): DeclaratorChunk.Function? {
         val location = currentToken().location
-        val params = parseParameters();
+        val params = tryParseParameters() ?: return null;
         val qualifiers = parseFunctionQualifiers();
-        return FunctionTypeNode(type, params, qualifiers, location)
+        val trailing = if (consume(Operator.ARROW, false)) tryParseTypeId() else null;
+        return DeclaratorChunk.Function(params, qualifiers, trailing, location);
     }
 
-    private fun parseArrayType(type: TypeNode): ArrayTypeNode {
+    private fun parseArrayDeclarator(): DeclaratorChunk.Array {
         val location = currentToken().location
-        if (currentToken() notA Symbol.LBRACKET) error("Expected '[' for array type")
-        position++;
-        val size: ExpressionNode? =
-            if (currentToken() isA Symbol.RBRACKET) null
-            else parseExpression()
-        position++
-        return ArrayTypeNode(type, size, isConst = false, isVolatile = false, location = location)
+        consume(Symbol.LBRACKET)
+        val size: ExpressionNode? = if (currentToken() isA Symbol.RBRACKET) null else parseExpression()
+        consume(Symbol.RBRACKET)
+        return DeclaratorChunk.Array(size, location)
+    }
+
+    private fun tryParseNewTypeId(): TypeId? {
+        return TypeId(tryParseDeclSpecSeq() ?: return null, tryParseNewDeclarator())
+    }
+
+    private fun tryParseTypeId(): TypeId? {
+        val id = TypeId(tryParseDeclSpecSeq() ?: return null, tryParseDeclarator())
+        id.declSpecifier.getElaborated()?.let {
+            resolveElaborated(it, false);
+        }
+        return id;
     }
 
     private fun parseIdentifier(): IdentifierNode {
@@ -1166,106 +1314,57 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return list
     }
 
-    private fun tryParseConstructor(classId: IdentifierNode): ASTNode? {
-        val lastPos = position
+    private fun tryParseFunctionDefinition(
+        declSpec: DeclSpecifierSeq,
+        declarator: Declarator
+    ): StatementNode? {
         val location = currentToken().location
-        val declaratorNode = parseDeclarator(PrimitiveTypeNode(PrimitiveTypeKind.VOID, isConst = false, isVolatile = false, location = location), false)
 
-        if (declaratorNode !is FunctionDeclaratorNode) {
-            position = lastPos
-            return null
-        }
+        val declaration = parseFunctionDeclaration(declSpec, declarator) ?: return null
+        val isCtor = declaration is ConstructorDeclarationNode;
+        val funDeclarator = declarator.chunks.last() as DeclaratorChunk.Function;
 
-        if (classId != declaratorNode.id) {
-            position = lastPos
-            return null
-        }
-
-        val declType = declaratorNode.type;
-        if (declType !is FunctionTypeNode) {
-            position = lastPos
-            return error("Invalid constructor declaration provided", currentToken())
-        }
-
-
-        val defaultParamCount = declType.params.count { (it.declarator as? VariableDeclaratorNode)?.initializer != null }
-        //TODO: add explicit support
-        val decl = DeclSymbol.constructorDecl(classId.name, sema.scope.ownerSymbol!!, declType.qualifiers, isExplicit = false, defaultParamCount)
-        decl.astNode = declaratorNode;
-        val overloadSet: DeclSymbol.FunctionOverloadSet? = sema.scope.define(decl).getAsOrElse { sema.error(it); null }
-
-        if (currentToken() isA Symbol.SEPARATOR) {
-            return ConstructorDeclarationNode(declType, location).also {
-                decl.astNode = it
-                it.ctorDecl = decl
-                it.overloadSet = overloadSet
-            }
-        } else {
-            val memberInitializers = if (currentToken() isA Symbol.COLON) parseMemberInitializerList() else listOf()
-            val body = sema.withScope(decl.scope) {
-                parseBlock()
-            }
-            return ConstructorDefinitionNode(declType, memberInitializers, body, location).also {
-                decl.astNode = it
-                decl.definitionNode = it;
-                it.ctorDecl = decl
-                it.overloadSet = overloadSet;
-            };
-        }
-    }
-
-    private fun parseFunctionDefinition(
-        type: TypeNode? = null,
-        declarator: DeclaratorNode? = null
-    ): StatementNode {
-        val location = currentToken().location
-        val type = type ?: parseType();
-        val declarator = declarator ?: parseDeclarator(type)
-
-
-        val funcType = declarator.type;
-        if (declarator !is FunctionDeclaratorNode || funcType !is FunctionTypeNode) {
-            return error("Invalid function definition provided", currentToken())
-        }
-
-        val classDecl = sema.scope.findCurrentClass();
-
-        val decl = DeclSymbol.FunctionDecl(declarator.id.name, sema.scope.ownerSymbol, funcType.qualifiers, classDecl != null, isBuiltin = false, declarator.defaultParamCount)
-        decl.astNode = declarator;
-        val overloadSet: DeclSymbol.FunctionOverloadSet? = sema.scope.define(decl).getAsOrElse { sema.error(it); null }
+        val decl = declaration.functionDecl;
+        val overloadSet = declaration.overloadSet;
         decl.scope = Scope(sema.scope, decl)
 
+        val memberInitializer = if (isCtor && currentToken() isA Symbol.COLON) parseMemberInitializerList() else emptyList()
+
         val body = sema.withScope(decl.scope) {
-            for (param in funcType.params) {
-                val name = param.name?.name ?: continue
-                var paramDeclarator = param.declarator;
+            for (param in funDeclarator.params) {
+                val name = param.declarator?.id?.name ?: continue
+                val paramDeclarator = param.declarator;
                 val paramDecl: DeclSymbol;
-                when (paramDeclarator) {
-                    is FunctionDeclaratorNode -> {
-                        paramDecl = DeclSymbol.functionDecl(name, sema.scope.ownerSymbol, (paramDeclarator.type as FunctionTypeNode).qualifiers, paramDeclarator.defaultParamCount)
-                        paramDeclarator.functionDecl = paramDecl;
+                when {
+                    paramDeclarator.isFunctionDeclarator() -> {
+                        val decl = paramDeclarator.getFunctionDeclarator()!!;
+                        paramDecl = DeclSymbol.functionDecl(name, sema.scope.ownerSymbol, decl.functionQualifiers, decl.defaultParamCount)
+                        param.decl = paramDecl;
                     }
 
-                    is VariableDeclaratorNode -> {
+                    else -> {
                         paramDecl = DeclSymbol.variable(name, sema.scope.ownerSymbol)
-                        paramDeclarator.varDecl = paramDecl;
+                        param.decl = paramDecl;
                     }
-
-                    else -> throw IllegalStateException("Invalid declarator type")
                 }
-                paramDecl.astNode = paramDeclarator;
+                paramDecl.astNode = param;
 
                 sema.scope.define(paramDecl).ifFailure(sema::error)
             }
             FunctionBodyNode(parseBlock().statements, location);
         }
-        return FunctionDefinitionNode(declarator, body, location).also {
-            parseSeparator(false);
-            decl.astNode = it
-            decl.definitionNode = it
-            it.functionDecl = decl
-            it.overloadSet = overloadSet
+        val node = if (isCtor) {
+            ConstructorDefinitionNode(declaration, memberInitializer, body, location);
+        } else {
+            FunctionDefinitionNode(declaration, body, location);
         }
+
+        parseSeparator(false);
+        decl.astNode = node
+        decl.definitionNode = node
+        node.functionDecl = decl
+        node.overloadSet = overloadSet
+        return node;
     }
 
     private fun parseBlock(withBraces: Boolean = true): CompoundStatementNode {
@@ -1335,17 +1434,8 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             token isA Keyword.DO -> parseDoStatement()
             token isA Keyword.CONTINUE -> parseContinueStatement();
             token isA Keyword.ASM -> parseAsmStatement();
-            token isA Keyword.TYPEDEF -> parseTypeDefStatement();
             else -> tryParseDeclarationOrDefinition();
         }
-    }
-
-    private fun parseTypeDefStatement(): StatementNode {
-        consume(Keyword.TYPEDEF);
-        val type = parseType();
-        val declSeq = parseDeclaratorList(type, defineInScope = true, isTypeDef = true);
-        parseSeparator(true)
-        return TypeDefStatementNode(type, declSeq, currentToken().location)
     }
 
     private fun parseAsmStatement(): StatementNode {
@@ -1408,21 +1498,11 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
     private fun tryParseDeclarationOrDefinition(): StatementNode {
         val token = currentToken()
-        val type = tryParseType();
-        return when {
-            type != null -> {
-                val declarators = parseDeclaratorList(type);
-                val decl: StatementNode =
-                    if (declarators.size == 1 && currentToken() isA Symbol.BEGIN) {
-                        parseFunctionDefinition(type, declarators[0])
-                    } else parseDeclarationSeq(type, declarators);
-//                    } else throw SyntaxException("Invalid declaration provided", tokens[nextTokenPos], position)
-                decl
+        return tryParseSimpleDeclOrFunctionDef() ?: run {
+            when {
+                token isA Keyword.NAMESPACE -> parseNamespaceDefinition(token.location)
+                else -> EmptyStatementNode
             }
-
-            token isA Keyword.CLASS || token isA Keyword.STRUCT -> parseClass()
-            token isA Keyword.NAMESPACE -> parseNamespaceDefinition(token.location)
-            else -> EmptyStatementNode
         }
     }
 
@@ -1485,58 +1565,95 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
                 nodes += AccessSpecifierNode(specifier, currentToken().location);
             } else {
+//
+//                var isCtor = false;
+//                if (currentToken() is IdToken) {
+//                    val constructor = if (classId != null) tryParseConstructor(classId) else null
+//                    if (constructor != null) {
+//                        nodes += constructor;
+//                        isCtor = true;
+//                    }
+//                }
 
-                var isCtor = false;
-                if (currentToken() is IdToken) {
-                    val constructor = if (classId != null) tryParseConstructor(classId) else null
-                    if (constructor != null) {
-                        nodes += constructor;
-                        isCtor = true;
-                    }
-                }
-
-                if (!isCtor) {
-                    val statement = tryParseStatement();
-                    if (statement != EmptyStatementNode) {
-                        nodes += statement
-                        parseSeparator(false)
-                    } else break
-                }
+//                if (!isCtor) {
+                val statement = tryParseStatement();
+                if (statement != EmptyStatementNode) {
+                    nodes += statement
+                    parseSeparator(false)
+                } else break
+//                }
             }
         }
         consume(Symbol.END)
         return ClassBodyNode(nodes, location)
     }
 
-    private fun parseParameters(): List<ParameterNode> {
-        var token: Token
-        consume(Symbol.LPAREN)
+    private fun tryParseParameters(): List<ParameterNode>? {
+        if (!consume(Symbol.LPAREN, false)) return null;
 
+        val startPos = position;
         val list = mutableListOf<ParameterNode>()
 
-        if (!consume(Symbol.RPAREN, false)) {
-            token = currentToken()
-            while (token !is SymbolToken || token isA Symbol.COMMA) {
-                list += parseParameter()
-                token = currentToken()
-                if (token isA Symbol.COMMA) position++
-            }
-            consume(Symbol.RPAREN)
+        if (consume(Symbol.RPAREN, false)) return emptyList();
+
+        while (true) {
+            list += tryParseParameter() ?: break;
+            consume(Symbol.COMMA, false);
         }
+
+        if (list.isEmpty()) {
+            position = startPos;
+            return null;
+        }
+        consume(Symbol.RPAREN)
 
         return list;
     }
 
-    private fun parseParameter(): ParameterNode {
+    private fun tryParseParameter(): ParameterNode? {
         val location = currentToken().location
-        var type = tryParseType();
-        if (type == null) {
-            type = errorType("Cannot parse type in parameter", currentToken())
-            position++
+        val isExplicitObject = consume(Keyword.THIS, false)
+        val declSpec = tryParseDeclSpecSeq() ?: return null
+        declSpec.getElaborated()?.let {
+            resolveElaborated(it, false);
         }
-        val declarator = parseDeclarator(type, false);
+        val declarator = tryParseDeclarator();
+        val init = tryParseInitializerClause();
+        return ParameterNode(isExplicitObject, declSpec, declarator, init, location)
+    }
 
-        return ParameterNode(declarator, location)
+    private fun tryParseNewInitializer(): ExpressionNode? {
+        return tryParseBracedInitList() ?: tryParseInitList();
+    }
+
+    private fun tryParseInitializer(): ExpressionNode? {
+        return tryParseInitializerClause() ?: tryParseInitList();
+    }
+
+    private fun tryParseInitializerClause(): ExpressionNode? {
+        return tryParseBracedInitList() ?: run {
+            if (!consume(Operator.ASSIGN, false)) null
+            else tryParseBracedInitList() ?: run {
+                val expr = parseExpression();
+                if (expr is EmptyExpressionNode) null else expr;
+            }
+        }
+    }
+
+    private fun tryParseInitList(): InitListExpressionNode? {
+        val loc = currentToken().location;
+        if (!consume(Symbol.LPAREN, false)) return null;
+        val exprs = parseExpressionList();
+        consume(Symbol.RPAREN);
+        return InitListExpressionNode(exprs, false, loc);
+    }
+
+    private fun tryParseBracedInitList(): InitListExpressionNode? {
+        val loc = currentToken().location;
+        if (!consume(Symbol.BEGIN, false)) return null;
+        val exprs = parseExpressionList();
+        consume(Symbol.END);
+        return InitListExpressionNode(exprs, true, loc);
     }
 
     private fun parseSimpleIdentifier(): IdentifierNode {
@@ -1607,7 +1724,31 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         if (currentToken() notA Symbol.BEGIN) {
             identifier = parseSimpleIdentifier()
         }
-        var decl: DeclSymbol.ClassDecl
+
+        val outNode: StatementNode;
+        if (currentToken() isA Symbol.BEGIN) {
+            val decl = declareClass(identifier, classType);
+            val body = sema.withScope(decl.scope) {
+                parseClassBody(identifier)
+            }
+            outNode = ClassDefinitionNode(identifier, classType, body, location).also {
+                if (decl.definitionNode != null) {
+                    sema.error("Class ${decl.name} has already been defined or declared", it)
+                } else {
+                    decl.astNode = it
+                    decl.definitionNode = it
+                }
+                it.classDecl = decl
+            }
+            parseSeparator(true);
+        } else {
+            outNode = ClassDeclarationNode(identifier, classType, location)
+        }
+        return outNode;
+    }
+
+    private fun declareClass(identifier: IdentifierNode?, classType: ClassType): DeclSymbol.ClassDecl {
+        val decl: DeclSymbol.ClassDecl;
         if (identifier != null) {
             val found = sema.resolveSymbolsLocal(identifier, sema.scope, false).getOrNull() as? DeclSymbol.ClassDecl;
             if (found == null) {
@@ -1621,32 +1762,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             sema.scope.define(decl).ifFailure(sema::error)
             decl.scope = ClassScope(sema.scope, decl)
         }
-
-
-        val outNode: StatementNode;
-        if (currentToken() notA Symbol.SEPARATOR) {
-            val body = sema.withScope(decl.scope) {
-                parseClassBody(identifier)
-            }
-
-            outNode = ClassDefinitionNode(identifier, classType, body, location).also {
-                if (decl.definitionNode != null) {
-                    sema.error("Class ${decl.name} has already been defined or declared", it)
-                } else {
-                    decl.astNode = it
-                    decl.definitionNode = it
-                }
-                it.classDecl = decl
-            }
-
-        } else {
-            outNode = ClassDeclarationNode(identifier, classType, location).also { node ->
-                decl.astNode = node
-                node.classDecl = decl
-            }
-        }
-        parseSeparator(true);
-        return outNode;
+        return decl;
     }
 
     private fun resolveClassType(token: Token): ClassType {
@@ -1662,6 +1778,108 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
                 error("Invalid class keyword provided")
                 ClassType.CLASS
             }
+        }
+    }
+
+    private fun getClassKeys(): List<Keyword> = listOf(Keyword.CLASS, Keyword.STRUCT, Keyword.UNION);
+    fun validateFunc(spec: DeclSpecifierSeq) {
+        if (spec.isTypedef) {
+            error("Function declaration cannot be a 'typedef'", spec.location)
+        }
+        if (spec.constexprSpec is ConstExprSpecifier.Constinit) {
+            error("'constinit' specifier is not allowed on function declarations", spec.constexprSpec.location)
+        }
+        spec.storageClassSpec?.let { storage ->
+            storage.forEach { specifier ->
+                if (specifier is StorageClassSpecifier.Mutable || specifier is StorageClassSpecifier.ThreadLocal) {
+                    error("Storage class '${specifier}' is not allowed on functions", specifier.location)
+                }
+            }
+        }
+        spec.funcSpec?.let { funcSpec ->
+            // virtual и explicit разрешены ТОЛЬКО внутри классов/структур
+//            if (!spec.isMemberFunction) {
+//                if (funcSpec.isVirtual) {
+//                    error("'virtual' specifier is only allowed on member function declarations", funcSpec.location)
+//                }
+//                if (funcSpec.isExplicit) {
+//                    error("'explicit' specifier is only allowed on constructors or conversion operators inside a class", funcSpec.location)
+//                }
+//            }
+
+//            if (funcSpec is FunctionSpecifier.Virtual && spec.) {
+//                error("A member function cannot be both 'virtual' and 'static'", funcSpec.location)
+//            }
+
+        }
+        //TODO: vaildate funcion decl
+    }
+
+    fun validateTypeDef(spec: DeclSpecifierSeq) {
+        spec.funcSpec?.let { funcSpec ->
+            error("Function specifiers ('inline', 'virtual', 'explicit') are not allowed in typedef", funcSpec.location)
+        }
+
+        spec.storageClassSpec?.let { storage ->
+            error("Cannot combine 'typedef' with storage class specifiers", storage.first().location);
+        }
+
+        if (spec.constexprSpec != null) {
+            error("Constexpr specifiers ('constexpr', 'consteval', 'constinit') are not allowed in typedef", spec.constexprSpec.location)
+        }
+
+        if (spec.friendSpec != null) {
+            error("'friend' specifier is not allowed in typedef declaration", spec.friendSpec.location)
+        }
+    }
+
+    fun validateNewTypeId(typeId: TypeId) {
+        if (typeId.declarator != null && !typeId.declarator.isAbstract()) {
+            sema.error("Expected abstract declarator", typeId.declarator.id!!)
+        }
+        if (!typeId.declSpecifier.hasTypeSpec()) {
+            sema.error("Expected type specifier", location = typeId.declSpecifier.location)
+        }
+
+        if (typeId.declSpecifier.isDefining()) {
+            sema.error("Type definition is not allowed in current context", location = typeId.declSpecifier.location)
+        }
+    }
+
+    fun validateTypeId(typeId: TypeId) {
+        if (typeId.declarator != null && !typeId.declarator.isAbstract()) {
+            sema.error("Expected abstract declarator", typeId.declarator.id!!)
+        }
+        if (!typeId.declSpecifier.hasTypeSpec()) {
+            sema.error("Expected type specifier", location = typeId.declSpecifier.location)
+        }
+        if (typeId.declSpecifier.isDefining()) {
+            sema.error("Type definition is not allowed in current context", location = typeId.declSpecifier.location)
+        }
+    }
+
+    fun resolveElaborated(spec: ClassDeclarationNode, hasDeclarator: Boolean) {
+        if (spec.name == null) {
+            error("Expected class name", spec.location)
+            return;
+        }
+        if (!hasDeclarator) {
+            declareClass(spec.name, spec.type).also {
+                it.astNode = spec;
+                spec.classDecl = it;
+            }
+            return;
+        }
+
+        val classDecl: DeclSymbol.ClassDecl? = sema.resolveSymbols(spec.name, sema.scope, false, tagOnly = true).getAsOrElse { null }
+        if (classDecl == null) {
+            declareClass(spec.name, spec.type).also {
+                it.astNode = spec;
+                spec.classDecl = it;
+            }
+        } else {
+            spec.classDecl = classDecl;
+            classDecl;
         }
     }
 }

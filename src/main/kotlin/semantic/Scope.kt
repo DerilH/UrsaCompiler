@@ -125,25 +125,27 @@ open class Scope(
         usingDirectives.add(importedScope)
     }
 
-    open fun lookupLocal(name: String, processedOnly: Boolean): OpResult<DeclSymbol> {
-        val ordinary = ordinaryMap[name]
-        if (ordinary != null && (!processedOnly || ordinary.processed)) return OpResult.success(ordinary)
+    open fun lookupLocal(name: String, processedOnly: Boolean, tagOnly: Boolean = false): OpResult<DeclSymbol> {
+        if(!tagOnly) {
+            val ordinary = ordinaryMap[name]
+            if (ordinary != null && (!processedOnly || ordinary.processed)) return OpResult.success(ordinary)
+        }
 
         val tag = tagMap[name]
         if (tag != null && (!processedOnly || tag.processed)) return OpResult.success(tag)
 
-        val fromUsing = lookupInUsingNamespaces(name, processedOnly)
+        val fromUsing = lookupInUsingNamespaces(name, processedOnly, tagOnly)
         return fromUsing
     }
 
-    private fun Scope.lookupInUsingNamespaces(name: String, processedOnly: Boolean): OpResult<DeclSymbol> {
+    private fun Scope.lookupInUsingNamespaces(name: String, processedOnly: Boolean, tagOnly: Boolean): OpResult<DeclSymbol> {
         var candidate: OpResult.Success<DeclSymbol>? = null
 
         for (ns in usingDirectives) {
-            val found = ns.lookupLocal(name, processedOnly)
+            val found = ns.lookupLocal(name, processedOnly, tagOnly)
             if (!found.isSuccess()) continue;
 
-            if (candidate != null && candidate.value != found) {
+            if (candidate != null && candidate.value != found.value) {
                 return OpResult.failure("Reference to '$name' is ambiguous", LookResult.AMBIGUOUS)
             }
             candidate = found
@@ -152,8 +154,8 @@ open class Scope(
         return candidate ?: OpResult.failure("No declaration found for '$name'", LookResult.NOT_FOUND)
     }
 
-    fun lookupUnqualified(name: String, processedOnly: Boolean): OpResult<DeclSymbol> =
-        lookupLocal(name, processedOnly).orElse { return parent?.lookupUnqualified(name, processedOnly) ?: it };
+    fun lookupUnqualified(name: String, processedOnly: Boolean, tagOnly: Boolean): OpResult<DeclSymbol> =
+        lookupLocal(name, processedOnly, tagOnly).orElse { return parent?.lookupUnqualified(name, processedOnly,tagOnly) ?: it };
 
     fun getRootScope(): Scope = parent?.getRootScope() ?: this
 }

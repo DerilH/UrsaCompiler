@@ -2,7 +2,6 @@ package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
 import org.derilh.ast.FloatLiteralNode
-import org.derilh.ast.PrimitiveTypeNode
 import org.derilh.core.PrimitiveTypeKind
 import java.math.BigDecimal
 

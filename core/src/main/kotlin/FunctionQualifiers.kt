@@ -1,14 +1,28 @@
 package org.derilh.core
 
-enum class RefQualifier {
-    NONE,   //
-    LVALUE, // &
-    RVALUE  // &&
-};
+import org.derilh.ast.api.IExpressionNode
 
-data class FunctionQualifiers (
-    val isConst: Boolean = false,
-    val isVolatile: Boolean = false,
-    val refQualifier: RefQualifier= RefQualifier.NONE,
-    val isNoExcept: Boolean = false
-)
+sealed interface ICVQualifier {
+    interface Const : ICVQualifier
+    interface Volatile : ICVQualifier
+    interface Restrict : ICVQualifier //EXPANSION
+}
+
+sealed interface IRefQualifier {
+    interface LValue : IRefQualifier
+    interface RValue : IRefQualifier
+}
+
+interface INoExceptSpecifier {
+    val expr: IExpressionNode?
+}
+
+data class FunctionQualifiers(
+    val cvQualifiers: List<ICVQualifier> = emptyList(),
+    val refQualifier: IRefQualifier? = null,
+    val noExceptSpec: INoExceptSpecifier? = null
+) {
+    val isConst: Boolean get()  {return cvQualifiers.any{ it is ICVQualifier.Const };}
+    val isVolatile: Boolean get() {return cvQualifiers.any{ it is ICVQualifier.Volatile};}
+    val isNoExcept: Boolean get() {return noExceptSpec != null}
+}

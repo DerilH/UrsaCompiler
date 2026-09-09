@@ -1,9 +1,9 @@
 package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
+import org.derilh.ast.DeclSpecifierSeq
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.IdentifierNode
-import org.derilh.ast.TypeNode
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.OpResult
@@ -16,6 +16,7 @@ import org.derilh.semantic.analyzer.ConversionSequence
 import org.derilh.semantic.analyzer.IdContext
 import org.derilh.semantic.analyzer.ViableCandidate
 import org.derilh.core.target.TargetInfo
+import semantic.Declarator
 import java.math.BigInteger
 
 interface AnalyzeContext {
@@ -45,12 +46,11 @@ interface AnalyzeContext {
     fun error(failure: OpResult.Failure, astNode: ASTNode? = null, location: SourceLocation? = null)
     fun isSameType(first: SemanticType, second: SemanticType): Boolean
     fun isSameOverloadFun(first: SemanticType.Function, second: SemanticType.Function): Boolean
-    fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true): OpResult<DeclSymbol>
-    fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true): OpResult<DeclSymbol>;
-    fun resolveSymbolsLocal(name: String, currentScope: Scope, processedOnly: Boolean = true): OpResult<DeclSymbol>;
-    fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean = true): OpResult<DeclSymbol>
-    fun resolveType(typeNode: TypeNode, currentScope: Scope, deduceType: SemanticType? = null, isByValue: Boolean = true): OpResult<SemanticType>;
-    fun findBinaryOverload(firstOp: TypeNode, secondOp: TypeNode, operator: Operator): DeclSymbol.FunctionDecl?
+    fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true, tagOnly: Boolean = false): OpResult<DeclSymbol>
+    fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean = true, tagOnly: Boolean = false): OpResult<DeclSymbol>;
+    fun resolveSymbolsLocal(name: String, currentScope: Scope, processedOnly: Boolean = true, tagOnly: Boolean = false): OpResult<DeclSymbol>;
+    fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean = true, tagOnly: Boolean = false): OpResult<DeclSymbol>
+    fun resolveType(declSpec: DeclSpecifierSeq, declarator: Declarator?, currentScope: Scope, deduceType: SemanticType? = null, isByValue: Boolean = true): OpResult<SemanticType>;
     fun resolveOpOverloads(scope: Scope, op: Operator, isBinary: Boolean, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo? = null): Set<ViableCandidate<DeclSymbol.FunctionDecl>>;
     fun resolveOpOverloads(scope: Scope, op: String, isBinary: Boolean, leftOperand: ExpressionInfo, rightOperand: ExpressionInfo?): Set<ViableCandidate<DeclSymbol.FunctionDecl>>;
     fun buildConversionSeq(base: ExpressionNode, seq: ConversionSequence): ExpressionNode;

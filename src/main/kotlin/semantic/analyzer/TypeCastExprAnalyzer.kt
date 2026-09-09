@@ -16,8 +16,8 @@ public class TypeCastExprAnalyzer : NodeAnalyzer<TypeCastExpressionNode> {
 //        node.resolvedType = node.declaratorNode.type.resolvedType;
 //        TODO("Type cast not yet implemented")
         node.operand = ctx.analyze(node.operand, ctx.scope) as ExpressionNode;
-        ctx.analyze(node.declaratorNode, ctx.scope)
-        node.resolvedType = node.declaratorNode.type.resolvedType;
+//        ctx.analyze(node.declaratorNode, ctx.scope)
+//        node.resolvedType = node.declaratorNode.type.resolvedType;
         node.valueCategory = ValueCategory.PRVALUE;
         return node;
     }

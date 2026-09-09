@@ -3,15 +3,15 @@ package org.derilh.analyzer
 import org.derilh.ast.ASTNode
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.IdExpressionNode
-import org.derilh.ast.VariableDeclaratorNode
+import org.derilh.ast.VariableDeclarationNode
 import org.derilh.core.ValueCategory
 import org.derilh.core.getOrElse
 import org.derilh.semantic.ExpressionInfo
 import org.derilh.semantic.SemanticType
 
-class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
-    override fun analyze(node: VariableDeclaratorNode, ctx: AnalyzeContext): ASTNode {
-        var init = node.initializer;
+class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclarationNode> {
+    override fun analyze(node: VariableDeclarationNode, ctx: AnalyzeContext): ASTNode {
+        var init = node.declarator.init;
         var initType = if (init != null) {
             node.initializer = ctx.analyze(init, ctx.scope) as ExpressionNode
             node.initializer!!.resolvedType;
@@ -19,7 +19,7 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
         val canonInit = initType?.canonical
         init = node.initializer
 
-        var varType = ctx.resolveType(node.type, ctx.scope, null).getOrElse { ctx.error(it, node); return node }
+        var varType = ctx.resolveType(node.declSpec, node.declarator, ctx.scope, null).getOrElse { ctx.error(it, node); return node }
 
         if (canonInit is SemanticType.OverloadSet) {
             val resolvedInfo = resolveOverloadSetAddress(overloadSet = canonInit, targetType = varType, initializerNode = node.initializer!!, ctx = ctx)
@@ -29,7 +29,7 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
             node.initializer!!.valueCategory = resolvedInfo.valueCategory
         }
 
-        varType = ctx.resolveType(node.type, ctx.scope, initType).getOrElse { ctx.error(it); return node }
+        varType = ctx.resolveType(node.declSpec, node.declarator, ctx.scope, initType).getOrElse { ctx.error(it); return node }
 
 
         node.varDecl.type = varType
@@ -37,7 +37,7 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
 
 
         if (!varType.isComplete) {
-            ctx.error("Type ${varType.toDisplayString()} is incomplete", node.type)
+            ctx.error("Type ${varType.toDisplayString()} is incomplete", location = node.location)
         } else if (varType.hasUndeducedAuto) {
             if (init == null) {
                 ctx.error("Declaration with 'auto' requires an initializer", node)
@@ -50,7 +50,7 @@ class VarDeclaratorAnalyzer : NodeAnalyzer<VariableDeclaratorNode> {
             } else if (seq.size > 1) {
                 ctx.error("Ambiguous cast", init)
             } else {
-                ctx.error("Cannot initialize variable ${node.id.toDisplayString()} of type ${varType.toDisplayString()} with ${initType.toDisplayString()}", init)
+                ctx.error("Cannot initialize variable ${node.declarator.id?.toDisplayString()} of type ${varType.toDisplayString()} with ${initType.toDisplayString()}", init)
             }
         }
 

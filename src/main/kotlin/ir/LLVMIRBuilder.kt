@@ -10,9 +10,7 @@ import org.derilh.core.ConversionKind
 import org.derilh.core.Operator
 import org.derilh.core.Options
 import org.derilh.core.PrimitiveTypeKind
-import org.derilh.core.TypeInfo
 import org.derilh.core.target.FloatFormat
-import org.derilh.core.target.TargetInfo
 import org.derilh.semantic.SemanticType
 import org.derilh.semantic.isDeclared
 import org.derilh.semantic.isPointer
@@ -100,14 +98,14 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
     fun generateIR(ast: ASTNode): LLVMValueRef? {
         return when (ast) {
             is FunctionDefinitionNode -> getFunctionRef(ast.functionDecl)
-            is FunctionDeclaratorNode -> getFunctionRef(ast.functionDecl)
+            is FunctionDeclarationNode -> getFunctionRef(ast.functionDecl)
             is BinaryExpressionNode -> visitBinaryExpr(ast)
             is ReturnStatementNode -> visitReturn(ast)
             is CallExpressionNode -> visitCallExpr(ast)
             is IntLiteralNode -> visitIntLit(ast)
             is ImplicitCastExpressionNode -> visitImplicitCast(ast);
             is IdExpressionNode -> visitIdExpr(ast);
-            is VariableDeclaratorNode -> getVarDecl(ast.varDecl);
+            is VariableDeclarationNode -> getVarDecl(ast.varDecl);
             is DeclarationSequenceNode -> visitDeclSeqNode(ast);
             is IfStatementNode -> visitIf(ast);
             is WhileStatementNode -> visitWhileStmt(ast)
@@ -355,7 +353,6 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
     fun getVarDecl(varDecl: DeclSymbol.VariableDecl): LLVMValueRef {
         return variables.getOrPut(varDecl) {
-            val node = varDecl.astNode as VariableDeclaratorNode
             val varType = convertType(varDecl.type)
 
             val ref = if (varDecl.parentSymbol == null) {
@@ -363,8 +360,7 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             } else {
                 LLVMBuildAlloca(builder, varType, getUniqueName(varDecl.name))
             }
-
-            val init = node.initializer
+            val init = (varDecl.astNode as? ParameterNode)?.init ?: (varDecl.astNode as? VariableDeclarationNode)?.initializer
             if (init != null) {
                 val initVal = generateIR(init)!!
                 LLVMBuildStore(builder, initVal, ref)
@@ -461,10 +457,10 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
                 currentFn = func;
 
                 for (i in decl.params.indices) {
-                    val paramAST = ((decl.astNode as FunctionDeclaratorNode).type as FunctionTypeNode).params[i].declarator as VariableDeclaratorNode
-                    val llvmParam = LLVMGetParam(func, i)
-                    val alloca = generateIR(paramAST)
-                    LLVMBuildStore(builder, llvmParam, alloca)
+//                    val paramAST = ((decl.astNode as FunctionDeclarationNode).type as FunctionTypeNode).params[i].declarator as VariableDeclarationNode
+//                    val llvmParam = LLVMGetParam(func, i)
+//                    val alloca = generateIR(paramAST)
+//                    LLVMBuildStore(builder, llvmParam, alloca)
                 }
 
 

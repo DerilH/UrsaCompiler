@@ -1,7 +1,6 @@
 package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
-import org.derilh.ast.AbstractDeclaratorNode
 import org.derilh.ast.AsmOperandNode
 import org.derilh.ast.AsmStatementNode
 import org.derilh.ast.CallExpressionNode
@@ -11,6 +10,7 @@ import org.derilh.ast.StringLiteralNode
 import org.derilh.core.ValueCategory
 import org.derilh.core.getOrElse
 import org.derilh.core.ifFailure
+import org.derilh.semantic.analyzer.IdContext
 
 class AsmStmtAnalyzer : NodeAnalyzer<AsmStatementNode> {
     override fun analyze(node: AsmStatementNode, ctx: AnalyzeContext): ASTNode {
@@ -49,7 +49,6 @@ class AsmOperandAnalyzer : NodeAnalyzer<AsmOperandNode> {
             }
             node.expr = expr
         }
-
         return node
     }
 }

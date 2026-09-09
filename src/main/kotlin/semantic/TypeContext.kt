@@ -73,8 +73,8 @@ class TypeContext(val target: TargetInfo) {
         return intern(SemanticType.Primitive(kind, isConst, isVolatile, key))
     }
 
-    fun getPointer(pointee: SemanticType, isConst: Boolean = false, isVolatile: Boolean = false): SemanticType.Pointer {
-        return intern(SemanticType.Pointer(pointee, isConst, isVolatile, key))
+    fun getPointer(pointee: SemanticType, isConst: Boolean = false, isVolatile: Boolean = false, isRestrict: Boolean = false): SemanticType.Pointer {
+        return intern(SemanticType.Pointer(pointee, isConst, isVolatile,isRestrict, key))
     }
 
     fun getReference(pointee: SemanticType): SemanticType.Reference {

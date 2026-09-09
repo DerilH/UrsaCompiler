@@ -2,8 +2,6 @@ package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
 import org.derilh.ast.BooleanLiteralNode
-import org.derilh.ast.PrimitiveTypeNode
-import org.derilh.core.PrimitiveTypeKind
 
 class BoolLiteralAnalyzer : NodeAnalyzer<BooleanLiteralNode> {
 

@@ -74,27 +74,36 @@ class Preprocessor {
             currentFile: Path?,
             options: Options
         ): Path? {
+            // Преобразуем имя инклуда в Path, чтобы файловая система корректно обработала "./"
+            val relativeIncludePath = Path.of(includeName)
 
             if (!isAngled) {
+                // 1. Ищем относительно папки ТЕКУЩЕГО файла
                 if (currentFile != null) {
-                    val currentDir = currentFile.parent ?: currentFile.fileSystem.getPath("")
-                    val candidate = currentDir.resolve(includeName)
-                    if (Files.exists(candidate)) return candidate.toAbsolutePath().normalize()
+                    val absCurrentFile = currentFile.toAbsolutePath().normalize()
+                    val currentDir = absCurrentFile.parent ?: absCurrentFile.fileSystem.getPath(".")
+
+                    val candidate = currentDir.resolve(relativeIncludePath).normalize()
+                    if (Files.exists(candidate)) return candidate
                 }
 
+                // 2. Ищем в локальных include-директориях (-iquote / корень проекта)
                 for (quotePath in options.includes.quoteIncludePaths) {
-                    val candidate = quotePath.resolve(includeName)
-                    if (Files.exists(candidate)) return candidate.toAbsolutePath().normalize()
+                    val candidate = quotePath.toAbsolutePath().normalize()
+                        .resolve(relativeIncludePath).normalize()
+                    if (Files.exists(candidate)) return candidate
                 }
             }
+
+            // 3. Ищем в системных include-директориях (-I)
             for (sysPath in options.includes.systemIncludePaths) {
-                val candidate = sysPath.resolve(includeName)
-                if (Files.exists(candidate)) return candidate.toAbsolutePath().normalize()
+                val candidate = sysPath.toAbsolutePath().normalize()
+                    .resolve(relativeIncludePath).normalize()
+                if (Files.exists(candidate)) return candidate
             }
 
             return null
         }
-
         fun buildTargetMacros(target: TargetInfo): List<Macro> {
             //TODO: Add proper __cplusplus value
             val additionalMacros = mutableListOf<Macro>(
@@ -349,7 +358,6 @@ class PreProcessorMacroExpander(val lexer: Lexer) {
                 continue
             }
 
-            // Обычные токены раскрываем стандартно
             val singleTokenList = listOf(tok)
             val expanded = expandTokens(singleTokenList)
             result.addAll(expanded)

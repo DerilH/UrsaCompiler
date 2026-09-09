@@ -1,7 +1,6 @@
 package org.derilh.analyzer
 
 import org.derilh.ast.ASTNode
-import org.derilh.ast.AbstractDeclaratorNode
 import org.derilh.ast.CompoundStatementNode
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.ForStatementNode

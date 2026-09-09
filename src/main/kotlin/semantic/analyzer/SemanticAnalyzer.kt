@@ -1,6 +1,5 @@
 package org.derilh.semantic.analyzer
 
-import org.derilh.analyzer.AbstractDeclaratorAnalyzer
 import org.derilh.analyzer.AccessSpecifierAnalyzer
 import org.derilh.analyzer.AnalyzeContext
 import org.derilh.analyzer.ArrayAccessAnalyzer
@@ -30,22 +29,19 @@ import org.derilh.analyzer.Scope
 import org.derilh.analyzer.StringConcatAnalyzer
 import org.derilh.analyzer.StringLiteralAnalyzer
 import org.derilh.analyzer.TypeCastExprAnalyzer
-import org.derilh.analyzer.TypeDefDeclaratorAnalyzer
 import org.derilh.analyzer.TypeDefStmtAnalyzer
 import org.derilh.analyzer.UnaryExprAnalyzer
 import org.derilh.analyzer.VarDeclaratorAnalyzer
 import org.derilh.analyzer.WhileStmtAnalyzer
 import org.derilh.ast.ASTNode
-import org.derilh.ast.AbstractDeclaratorNode
 import org.derilh.ast.AccessSpecifierNode
 import org.derilh.ast.ArgumentsNode
 import org.derilh.ast.ArrayAccessNode
-import org.derilh.ast.ArrayTypeNode
 import org.derilh.ast.AsmOperandNode
 import org.derilh.ast.AsmStatementNode
-import org.derilh.ast.AutoTypeNode
 import org.derilh.ast.BinaryExpressionNode
 import org.derilh.ast.BooleanLiteralNode
+import org.derilh.ast.CVQualifier
 import org.derilh.ast.CallExpressionNode
 import org.derilh.ast.CharLiteralNode
 import org.derilh.ast.ClassBodyNode
@@ -54,55 +50,55 @@ import org.derilh.ast.ClassDefinitionNode
 import org.derilh.ast.CompoundStatementNode
 import org.derilh.ast.ConstructorDeclarationNode
 import org.derilh.ast.ConstructorDefinitionNode
-import org.derilh.ast.DeclaredTypeNode
+import org.derilh.ast.DeclSpecifier
+import org.derilh.ast.DeclSpecifierSeq
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.FloatLiteralNode
 import org.derilh.ast.FunctionBodyNode
 import org.derilh.ast.FunctionDefinitionNode
-import org.derilh.ast.FunctionTypeNode
 import org.derilh.ast.IdExpressionNode
 import org.derilh.ast.IdentifierNode
 import org.derilh.ast.ImplicitCastExpressionNode
 import org.derilh.ast.IntLiteralNode
-import org.derilh.ast.MemberPointerTypeNode
 import org.derilh.ast.NamespaceDeclarationNode
 import org.derilh.ast.NullptrLiteralNode
-import org.derilh.ast.PointerTypeNode
-import org.derilh.ast.PrimitiveTypeNode
 import org.derilh.ast.QualifiedIdentifierNode
-import org.derilh.ast.RValueReferenceTypeNode
-import org.derilh.ast.ReferenceTypeNode
 import org.derilh.ast.RootNode
 import org.derilh.ast.StringConcatExpressionNode
 import org.derilh.ast.StringLiteralNode
 import org.derilh.ast.TypeCastExpressionNode
-import org.derilh.ast.TypeNode
 import org.derilh.ast.UnaryExpressionNode
 import org.derilh.ast.DeclarationSequenceNode
-import org.derilh.ast.FunctionDeclaratorNode
+import org.derilh.ast.FunctionDeclarationNode
 import org.derilh.ast.IfStatementNode
 import org.derilh.ast.MemberAccessExpressionNode
 import org.derilh.ast.ParameterNode
 import org.derilh.ast.RecoveryExpressionNode
 import org.derilh.ast.RecoveryStatementNode
-import org.derilh.ast.ErrorTypeNode
 import org.derilh.ast.ForStatementNode
+import org.derilh.ast.RefQualifier
 import org.derilh.ast.ReturnStatementNode
-import org.derilh.ast.TypeDefDeclaratorNode
+import org.derilh.ast.SimpleTypeSpecifier
 import org.derilh.ast.TypeDefStatementNode
-import org.derilh.ast.VariableDeclaratorNode
+import org.derilh.ast.TypeSpecifier
+import org.derilh.ast.TypenameSpecifier
+import org.derilh.ast.VariableDeclarationNode
 import org.derilh.ast.WhileStatementNode
 import org.derilh.core.ConversionKind
 import org.derilh.core.FunctionQualifiers
+import org.derilh.core.Keyword
 import org.derilh.core.OpResult
 import org.derilh.core.Operator
 import org.derilh.core.Options
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.SourceLocation
 import org.derilh.core.ValueCategory
+import org.derilh.core.asSuccess
 import org.derilh.core.getAsOrNull
 import org.derilh.core.getOrElse
 import org.derilh.core.getOrNull
+import org.derilh.core.isFailure
+import org.derilh.core.isSuccess
 import org.derilh.exceptions.ProblemLevel
 import org.derilh.exceptions.SemanticProblem
 import org.derilh.semantic.AnalyzeResult
@@ -112,9 +108,11 @@ import org.derilh.semantic.TypeContext
 import org.derilh.semantic.isFunctionPointer
 import org.derilh.semantic.isPrimitive
 import org.derilh.core.target.TargetInfo
-import org.derilh.core.target.X86_64LinuxTargetInfo
+import org.derilh.main
 import org.derilh.util.ErrorHelper
 import org.derilh.util.ErrorHelper.Companion.getStackTrace
+import semantic.Declarator
+import semantic.DeclaratorChunk
 import java.math.BigInteger
 import kotlin.collections.mapNotNullTo
 import kotlin.collections.plusAssign
@@ -152,10 +150,9 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         NamespaceDeclarationNode::class to NamespaceDeclAnalyzer(),
         DeclarationSequenceNode::class to DeclarationSeqAnalyzer(),
 
-        VariableDeclaratorNode::class to VarDeclaratorAnalyzer(),
-        AbstractDeclaratorNode::class to AbstractDeclaratorAnalyzer(),
+        VariableDeclarationNode::class to VarDeclaratorAnalyzer(),
 
-        FunctionDeclaratorNode::class to FunctionDeclAnalyzer(),
+        FunctionDeclarationNode::class to FunctionDeclAnalyzer(),
         FunctionDefinitionNode::class to FunctionDefAnalyzer(),
         ReturnStatementNode::class to ReturnStmtAnalyzer(),
         IfStatementNode::class to IfStmtAnalyzer(),
@@ -179,7 +176,6 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         AsmOperandNode::class to AsmOperandAnalyzer(),
         ArrayAccessNode::class to ArrayAccessAnalyzer(),
         TypeDefStatementNode::class to TypeDefStmtAnalyzer(),
-        TypeDefDeclaratorNode::class to TypeDefDeclaratorAnalyzer(),
         ForStatementNode::class to ForStmtAnalyzer(),
 
         RecoveryExpressionNode::class to RecoveryAnalyzer(),
@@ -342,8 +338,6 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
 //    }
 
     override fun <T : ASTNode> findAnalyzer(node: T): NodeAnalyzer<T> {
-        require(node !is TypeNode) { "Expected a non-type node, got ${node::class}. Use resolveType() instead." }
-
         val analyzer = analyzers[node::class]
 
         if (analyzer == null) {
@@ -367,46 +361,37 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         if (first.qualifiers.refQualifier != second.qualifiers.refQualifier) return false
         return true
     }
-
-    override fun findBinaryOverload(
-        firstOp: TypeNode,
-        secondOp: TypeNode,
-        operator: Operator
-    ): DeclSymbol.FunctionDecl? {
-        return null
-    }
-
-    override fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
+    override fun resolveSymbols(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean, tagOnly: Boolean): OpResult<DeclSymbol> {
         return when (node) {
-            is QualifiedIdentifierNode -> resolveQualified(node, currentScope, processedOnly)
-            else -> currentScope.lookupUnqualified(node.name, processedOnly)
+            is QualifiedIdentifierNode -> resolveQualified(node, currentScope, processedOnly,tagOnly)
+            else -> currentScope.lookupUnqualified(node.name, processedOnly, tagOnly)
         }
     }
 
-    override fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
+    override fun resolveSymbolsLocal(node: IdentifierNode, currentScope: Scope, processedOnly: Boolean, tagOnly: Boolean): OpResult<DeclSymbol> {
         return when (node) {
             is QualifiedIdentifierNode -> OpResult.failure("Cannot resolve local identifier: ${node.name}", node)
-            else -> currentScope.lookupLocal(node.name, processedOnly)
+            else -> currentScope.lookupLocal(node.name, processedOnly, tagOnly)
         }
     }
 
-    override fun resolveSymbolsLocal(name: String, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
-        return currentScope.lookupLocal(name, processedOnly)
+    override fun resolveSymbolsLocal(name: String, currentScope: Scope, processedOnly: Boolean, tagOnly: Boolean): OpResult<DeclSymbol> {
+        return currentScope.lookupLocal(name, processedOnly, tagOnly)
     }
 
 
-    override fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
-        return currentScope.lookupUnqualified(node, processedOnly)
+    override fun resolveSymbolsUnqualified(node: String, currentScope: Scope, processedOnly: Boolean,tagOnly: Boolean): OpResult<DeclSymbol> {
+        return currentScope.lookupUnqualified(node, processedOnly,tagOnly)
     }
 
-    private fun resolveQualified(node: QualifiedIdentifierNode, currentScope: Scope, processedOnly: Boolean): OpResult<DeclSymbol> {
+    private fun resolveQualified(node: QualifiedIdentifierNode, currentScope: Scope, processedOnly: Boolean, tagOnly: Boolean): OpResult<DeclSymbol> {
         var targetScope: Scope
 
         if (node.isGlobal) {
             targetScope = currentScope.getRootScope()
         } else {
             val firstQualifier = node.qualifiers.first().name
-            val firstFound = resolveSymbolsUnqualified(firstQualifier, currentScope, processedOnly)
+            val firstFound = resolveSymbolsUnqualified(firstQualifier, currentScope, processedOnly,tagOnly)
                 .getOrElse { return it; }
 
             targetScope = getScopeFromSymbol(firstFound) ?: return OpResult.failure("Symbol '$firstQualifier' is not a class or namespace", node)
@@ -416,11 +401,11 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         for (i in startIndex until node.qualifiers.size) {
             val qualifierName = node.qualifiers[i].name
 
-            val symbol = targetScope.lookupLocal(qualifierName, processedOnly).getOrElse { return it; }
+            val symbol = targetScope.lookupLocal(qualifierName, processedOnly,tagOnly).getOrElse { return it; }
             targetScope = getScopeFromSymbol(symbol) ?: return OpResult.failure("'$qualifierName' is not a class or namespace", node)
         }
 
-        val finalSymbol = targetScope.lookupLocal(node.name, processedOnly).getOrElse { return it; }
+        val finalSymbol = targetScope.lookupLocal(node.name, processedOnly,tagOnly).getOrElse { return it; }
         return OpResult.success(finalSymbol)
     }
 
@@ -430,172 +415,406 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         else -> null
     }
 
-    override fun resolveType(
-        typeNode: TypeNode,
-        currentScope: Scope,
-        deduceType: SemanticType?,
-        isByValue: Boolean
-    ): OpResult<SemanticType> {
+    private fun resolveType(declSpec: DeclSpecifierSeq): OpResult<SemanticType> {
+        if (!declSpec.hasTypeSpec()) {
+            return OpResult.failure("Missing type specifier", declSpec.location)
+        }
 
-        val nonRefDeduce = if (deduceType != null) types.removeRef(deduceType) else deduceType
+        var mainSpec: TypeSpecifier? = null
+        var isConst = false
+        var isVolatile = false
 
-        val semanticType: SemanticType = when (typeNode) {
+        val builtinBuilder = BuiltinTypeBuilder(types)
+        var hasBuiltinKeywords = false
 
-            is AutoTypeNode -> {
-                val finalType = if (nonRefDeduce == null) {
-                    types.getAuto(typeNode.isConst, typeNode.isVolatile)
-                } else {
-                    val actualDeduce = if (isByValue) types.dropCV(types.decay(nonRefDeduce)) else nonRefDeduce
-                    types.addCV(actualDeduce, typeNode.isConst, typeNode.isVolatile)
-                }
-
-                typeNode.resolvedType = finalType
-                return OpResult.success(finalType)
-            }
-
-            is PrimitiveTypeNode -> {
-                types.getPrimitive(kind = typeNode.kind, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
-            }
-
-            is PointerTypeNode -> {
-                if (typeNode.type is ReferenceTypeNode || typeNode.type is RValueReferenceTypeNode) {
-                    return OpResult.failure("Pointer cannot point to a reference type", typeNode)
-                }
-
-                val unpackedDeduce = nonRefDeduce?.let { types.dropCV(it) }
-                val innerDeduce = (unpackedDeduce as? SemanticType.Pointer)?.pointee
-
-                val pointeeType = resolveType(
-                    typeNode = typeNode.type,
-                    currentScope = currentScope,
-                    deduceType = innerDeduce,
-                    isByValue = false
-                ).getOrElse { return it }
-
-                types.getPointer(pointee = pointeeType, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
-            }
-
-            is ReferenceTypeNode -> {
-                ensureReferenceBase(typeNode.type, typeNode)
-
-                val innerDeduce = (nonRefDeduce as? SemanticType.Reference)?.pointee ?: nonRefDeduce
-
-                val pointeeType = resolveType(
-                    typeNode = typeNode.type,
-                    currentScope = currentScope,
-                    deduceType = innerDeduce,
-                    isByValue = false
-                ).getOrElse { return it }
-
-                types.getReference(pointee = pointeeType)
-            }
-
-            is RValueReferenceTypeNode -> {
-                ensureReferenceBase(typeNode.type, typeNode)
-
-                val innerDeduce = (nonRefDeduce as? SemanticType.RValueReference)?.pointee ?: nonRefDeduce
-
-                val pointeeType = resolveType(
-                    typeNode = typeNode.type,
-                    currentScope = currentScope,
-                    deduceType = innerDeduce,
-                    isByValue = false
-                ).getOrElse { return it }
-
-                types.getRValueReference(pointee = pointeeType)
-            }
-
-            is ArrayTypeNode -> {
-                var arraySize: Long? = null
-
-                if (typeNode.sizeExpression != null) {
-                    findAnalyzer(typeNode.sizeExpression).analyze(typeNode.sizeExpression, this)
-                    val evalResult = typeNode.sizeExpression.evaluated
-                            ?: return OpResult.failure(
-                                "Array size expression must be constant. Variable length arrays are not supported by standard.",
-                                typeNode.sizeExpression
-                            )
-
-                    val sizeT = typeNode.sizeExpression.resolvedType as? SemanticType.Primitive
-                    val bigIntVal = evalResult as? BigInteger
-
-                    if (sizeT?.kind?.isInt != true || bigIntVal == null || bigIntVal.signum() < 0) {
-                        return OpResult.failure("Array size must be a non-negative integer", typeNode.sizeExpression)
-                    }
-
-                    arraySize = bigIntVal.longValueExact()
-                }
-
-                val innerDeduce = (nonRefDeduce as? SemanticType.Array)?.elementType
-                val elementType =
-                    resolveType(typeNode.elementType, currentScope, innerDeduce, isByValue).getOrElse { return it }
-
-                types.getArray(elementType = elementType, size = arraySize)
-            }
-
-            is DeclaredTypeNode -> {
-                val decl = resolveSymbols(typeNode.typeName, currentScope, true).getOrElse { error(it, typeNode); return it; }
-                if (decl is DeclSymbol.ClassDecl) {
-                    types.getDeclared(classDecl = decl, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
-                } else if (decl is DeclSymbol.TypedefDecl) {
-                    types.getTypeDef(decl.name, decl.canonicalType, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
-                } else return OpResult.failure("Invalid type name: ${typeNode.typeName.name}", typeNode.typeName)
-            }
-
-            is FunctionTypeNode -> {
-                val functionDeduce = nonRefDeduce as? SemanticType.Function
-
-                val returnType = resolveType(
-                    typeNode.returnType,
-                    currentScope,
-                    functionDeduce?.returnType,
-                    isByValue = true
-                ).getOrElse { return it }
-
-                val resolvedParams = mutableListOf<SemanticType>()
-                for ((index, paramNode) in typeNode.params.withIndex()) {
-                    val paramDeduce = functionDeduce?.params?.getOrNull(index)
-
-                    val paramType =
-                        resolveType(paramNode.type, currentScope, paramDeduce, isByValue = true).getOrElse { return it }
-                    resolvedParams.add(paramType)
-                }
-
-                types.getFunction(returnType = returnType, params = resolvedParams, qualifiers = typeNode.qualifiers)
-            }
-
-            is MemberPointerTypeNode -> {
-                val decl = resolveSymbols(typeNode.parentId, currentScope, true).getOrElse { return it }
-                if (decl !is DeclSymbol.ClassDecl) {
-                    return OpResult.failure("Invalid class name for member pointer: ${typeNode.parentId}", typeNode)
-                }
-
-                val innerDeduce = (nonRefDeduce as? SemanticType.MemberPointer)?.pointee
-                val memberType =
-                    resolveType(typeNode.type, currentScope, innerDeduce, isByValue = false).getOrElse { return it }
-
-                types.getMemberPointer(
-                    classDecl = decl,
-                    pointee = memberType,
-                    isConst = typeNode.isConst,
-                    isVolatile = typeNode.isVolatile
-                )
-            }
-
-            is ErrorTypeNode -> {
-                types.getError();
+        fun ensureFirst(spec: DeclSpecifier) {
+            if (mainSpec != null || hasBuiltinKeywords) {
+                ErrorHelper.conflictingSpec(mainSpec ?: spec, spec, spec.location)
             }
         }
 
-        typeNode.resolvedType = semanticType
-        return OpResult.success(semanticType)
+        fun ensureFirstCV(value: Boolean, spec: DeclSpecifier) {
+            if (value) ErrorHelper.duplicateSpec(spec, spec.location)
+        }
+
+        for (spec in declSpec.typeSpecs!!) {
+            when (spec) {
+                is SimpleTypeSpecifier.Keyword -> {
+                    if (mainSpec != null) {
+                        ErrorHelper.conflictingSpec(mainSpec!!, spec, spec.location)
+                    }
+
+                    val result = builtinBuilder.processKeyword(spec.keyword, spec.location)
+                    if (result.isFailure()) return result
+                    hasBuiltinKeywords = true
+                }
+
+                is SimpleTypeSpecifier.Decltype,
+                is ClassDefinitionNode,
+                is ClassDeclarationNode,
+                is SimpleTypeSpecifier.Id,
+                is SimpleTypeSpecifier.Placeholder,
+                is TypenameSpecifier -> {
+                    ensureFirst(spec)
+                    mainSpec = spec
+                }
+
+                is CVQualifier.Restrict -> {
+                    return OpResult.failure("Restrict can only be used with pointers and references", spec.location)
+                }
+
+                is CVQualifier.Const -> {
+                    ensureFirstCV(isConst, spec)
+                    isConst = true
+                }
+
+                is CVQualifier.Volatile -> {
+                    ensureFirstCV(isVolatile, spec)
+                    isVolatile = true
+                }
+            }
+        }
+
+        val baseSemanticType: SemanticType = if (mainSpec != null) {
+            when(mainSpec) {
+                is SimpleTypeSpecifier.Decltype -> {
+                    val expr = analyze(mainSpec.expr as ExpressionNode,scope) as ExpressionNode;
+                    expr.resolvedType ?: return OpResult.failure("Cannot resolve decltype expression type", expr.location!!);
+                }
+                is ClassDefinitionNode -> {
+                    types.getDeclared(mainSpec.classDecl, false, false);
+                }
+                is ClassDeclarationNode, -> {
+                    types.getDeclared(mainSpec.classDecl, false, false);
+                }
+                is SimpleTypeSpecifier.Id -> {
+                    val decls = resolveSymbols(mainSpec.expr as IdentifierNode, scope, true).getOrNull();
+                    when (decls) {
+                        is DeclSymbol.ClassDecl -> types.getDeclared(decls, false, false)
+                        is DeclSymbol.TypedefDecl -> types.getTypeDef(decls.name, decls.canonicalType, false, false)
+                        else -> return OpResult.failure("Invalid type name: ${mainSpec.expr.name}", mainSpec.expr)
+                    }
+                }
+                is SimpleTypeSpecifier.Placeholder -> {
+                    if(mainSpec.isDeclTypeAuto) TODO("Decltype auto is not supported yet")
+                    types.getAuto(false,false);
+                }
+                is TypenameSpecifier -> {
+                    TODO("Typename specifier is not supported yet")
+                }
+
+                else -> return OpResult.failure("Invalid type specifier", mainSpec.location)
+            }
+        } else if (hasBuiltinKeywords) {
+            builtinBuilder.build(declSpec.location).getOrElse { return it }
+        } else {
+            return OpResult.failure("Invalid type specifier sequence", declSpec.location)
+        }
+
+        val finalType = types.addCV(baseSemanticType, isConst = isConst, isVolatile = isVolatile)
+
+        return OpResult.success(finalType)
     }
 
-    private fun ensureReferenceBase(base: TypeNode, node: TypeNode) {
-        if (base is RValueReferenceTypeNode || base is ReferenceTypeNode) {
-            error("Reference to reference is forbidden", node)
-        } else if (base is PrimitiveTypeNode && base.kind == PrimitiveTypeKind.VOID) {
-            error("Reference to void type is forbidden", node)
+    override fun resolveType(declSpec: DeclSpecifierSeq, declarator: Declarator?, currentScope: Scope, deduceType: SemanticType?, isByValue: Boolean): OpResult<SemanticType> {
+        var currentType = resolveType(declSpec).getOrElse { return it }
+
+        if (currentType is SemanticType.Auto && deduceType != null) {
+            val nonRefDeduce = types.removeRef(deduceType)
+            val actualDeduce = if (isByValue) types.dropCV(types.decay(nonRefDeduce)) else nonRefDeduce
+
+            currentType = types.addCV(
+                actualDeduce,
+                isConst = currentType.isConst,
+                isVolatile = currentType.isVolatile
+            )
+        }
+
+        var currentDeduce = deduceType?.let { types.removeRef(it) }
+
+        for (chunk in declarator?.chunks.orEmpty().reversed()) {
+            when (chunk) {
+                is DeclaratorChunk.Ptr -> {
+                    when(chunk.kind) {
+                        DeclaratorChunk.Ptr.Kind.Pointer -> {
+                            if (currentType is SemanticType.Reference || currentType is SemanticType.RValueReference) {
+                                return OpResult.failure("'pointer' declared as a pointer to a reference", chunk.location)
+                            }
+
+                            val unpackedDeduce = currentDeduce?.let { types.dropCV(it) }
+
+                            currentDeduce = (unpackedDeduce as? SemanticType.Pointer)?.pointee
+
+                            currentType = types.getPointer(pointee = currentType, isConst = chunk.isConst, isVolatile = chunk.isVolatile, isRestrict = chunk.isRestrict)
+                        }
+
+                        DeclaratorChunk.Ptr.Kind.RRef -> {
+                            ensureReferenceBase(currentType, chunk.location)
+
+                            currentDeduce = (currentDeduce as? SemanticType.RValueReference)?.pointee ?: currentDeduce
+
+                            currentType = types.getRValueReference(pointee = currentType)
+                        }
+                        DeclaratorChunk.Ptr.Kind.LRef -> {
+                            ensureReferenceBase(currentType, chunk.location)
+
+                            currentDeduce = (currentDeduce as? SemanticType.Reference)?.pointee ?: currentDeduce
+
+                            currentType = types.getReference(pointee = currentType)
+                        }
+                    }
+                }
+
+                is DeclaratorChunk.Array -> {
+                    if (currentType is SemanticType.Reference || currentType is SemanticType.RValueReference) {
+                        return OpResult.failure("Element type cannot be a reference", chunk.location)
+                    }
+                    if (currentType is SemanticType.Function) {
+                        return OpResult.failure("Element type cannot be a function", chunk.location)
+                    }
+
+                    var arraySize: Long? = null
+
+                    if (chunk.sizeExpr != null) {
+                        analyze(chunk.sizeExpr!!, scope)
+                        val evalResult = chunk.sizeExpr.evaluated
+                                ?: return OpResult.failure(
+                                    "Array size expression must be constant. Variable length arrays are not supported by standard.",
+                                    chunk.sizeExpr.location!!
+                                )
+
+                        val sizeT = chunk.sizeExpr.resolvedType as? SemanticType.Primitive
+                        val bigIntVal = evalResult as? BigInteger
+
+                        if (sizeT?.kind?.isInt != true || bigIntVal == null || bigIntVal.signum() < 0) {
+                            return OpResult.failure("Array size must be a non-negative integer", chunk.sizeExpr.location!!)
+                        }
+
+                        arraySize = bigIntVal.longValueExact()
+                    }
+
+                    currentDeduce = (currentDeduce as? SemanticType.Array)?.elementType
+
+                    currentType = types.getArray(
+                        elementType = currentType,
+                        size = arraySize
+                    )
+                }
+
+                is DeclaratorChunk.Function -> {
+                    if (currentType is SemanticType.Array) {
+                        return OpResult.failure("Function cannot return an array type", chunk.location)
+                    }
+                    if (currentType is SemanticType.Function) {
+                        return OpResult.failure("Function cannot return a function type", chunk.location)
+                    }
+
+                    val functionDeduce = currentDeduce as? SemanticType.Function
+                    val resolvedParams = mutableListOf<SemanticType>()
+
+                    for ((index, paramNode) in chunk.params.withIndex()) {
+                        val paramDeduce = functionDeduce?.params?.getOrNull(index)
+
+                        val paramType = resolveType(
+                            declSpec = paramNode.declSpec,
+                            declarator = paramNode.declarator,
+                            currentScope = currentScope,
+                            deduceType = paramDeduce,
+                            isByValue = true
+                        ).getOrElse { return it }
+
+                        val adjustedParamType = types.decay(paramType)
+                        resolvedParams.add(adjustedParamType)
+                    }
+
+                    currentType = types.getFunction(
+                        returnType = currentType,
+                        params = resolvedParams,
+                        qualifiers = chunk.functionQualifiers
+                    )
+                }
+
+                is DeclaratorChunk.MemberPointer -> {
+                    val decl = resolveSymbols(chunk.classId, currentScope, true)
+                        .getOrElse { return it }
+
+                    if (decl !is DeclSymbol.ClassDecl) {
+                        return OpResult.failure("Invalid class name for member pointer: ${chunk.classId.toDisplayString()}", chunk.location)
+                    }
+
+                    currentDeduce = (currentDeduce as? SemanticType.MemberPointer)?.pointee
+
+                    currentType = types.getMemberPointer(
+                        classDecl = decl,
+                        pointee = currentType,
+                        isConst = chunk.isConst,
+                        isVolatile = chunk.isVolatile
+                    )
+                }
+            }
+        }
+
+        return OpResult.success(currentType)
+
+//        val nonRefDeduce = if (deduceType != null) types.removeRef(deduceType) else deduceType
+//
+//        val semanticType: SemanticType = when (typeNode) {
+//
+//            is AutoTypeNode -> {
+//                val finalType = if (nonRefDeduce == null) {
+//                    types.getAuto(typeNode.isConst, typeNode.isVolatile)
+//                } else {
+//                    val actualDeduce = if (isByValue) types.dropCV(types.decay(nonRefDeduce)) else nonRefDeduce
+//                    types.addCV(actualDeduce, typeNode.isConst, typeNode.isVolatile)
+//                }
+//
+//                typeNode.resolvedType = finalType
+//                return OpResult.success(finalType)
+//            }
+//
+//            is PrimitiveTypeNode -> {
+//                types.getPrimitive(kind = typeNode.kind, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
+//            }
+//
+//            is PointerTypeNode -> {
+//                if (typeNode.type is ReferenceTypeNode || typeNode.type is RValueReferenceTypeNode) {
+//                    return OpResult.failure("Pointer cannot point to a reference type", typeNode)
+//                }
+//
+//                val unpackedDeduce = nonRefDeduce?.let { types.dropCV(it) }
+//                val innerDeduce = (unpackedDeduce as? SemanticType.Pointer)?.pointee
+//
+//                val pointeeType = resolveType(
+//                    typeNode = typeNode.type,
+//                    currentScope = currentScope,
+//                    deduceType = innerDeduce,
+//                    isByValue = false
+//                ).getOrElse { return it }
+//
+//                types.getPointer(pointee = pointeeType, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
+//            }
+//
+//            is ReferenceTypeNode -> {
+//                ensureReferenceBase(typeNode.type, typeNode)
+//
+//                val innerDeduce = (nonRefDeduce as? SemanticType.Reference)?.pointee ?: nonRefDeduce
+//
+//                val pointeeType = resolveType(
+//                    typeNode = typeNode.type,
+//                    currentScope = currentScope,
+//                    deduceType = innerDeduce,
+//                    isByValue = false
+//                ).getOrElse { return it }
+//
+//                types.getReference(pointee = pointeeType)
+//            }
+//
+//            is RValueReferenceTypeNode -> {
+//                ensureReferenceBase(typeNode.type, typeNode)
+//
+//                val innerDeduce = (nonRefDeduce as? SemanticType.RValueReference)?.pointee ?: nonRefDeduce
+//
+//                val pointeeType = resolveType(
+//                    typeNode = typeNode.type,
+//                    currentScope = currentScope,
+//                    deduceType = innerDeduce,
+//                    isByValue = false
+//                ).getOrElse { return it }
+//
+//                types.getRValueReference(pointee = pointeeType)
+//            }
+//
+//            is ArrayTypeNode -> {
+//                var arraySize: Long? = null
+//
+//                if (typeNode.sizeExpression != null) {
+//                    findAnalyzer(typeNode.sizeExpression).analyze(typeNode.sizeExpression, this)
+//                    val evalResult = typeNode.sizeExpression.evaluated
+//                            ?: return OpResult.failure(
+//                                "Array size expression must be constant. Variable length arrays are not supported by standard.",
+//                                typeNode.sizeExpression
+//                            )
+//
+//                    val sizeT = typeNode.sizeExpression.resolvedType as? SemanticType.Primitive
+//                    val bigIntVal = evalResult as? BigInteger
+//
+//                    if (sizeT?.kind?.isInt != true || bigIntVal == null || bigIntVal.signum() < 0) {
+//                        return OpResult.failure("Array size must be a non-negative integer", typeNode.sizeExpression)
+//                    }
+//
+//                    arraySize = bigIntVal.longValueExact()
+//                }
+//
+//                val innerDeduce = (nonRefDeduce as? SemanticType.Array)?.elementType
+//                val elementType =
+//                    resolveType(typeNode.elementType, currentScope, innerDeduce, isByValue).getOrElse { return it }
+//
+//                types.getArray(elementType = elementType, size = arraySize)
+//            }
+//
+//            is DeclaredTypeNode -> {
+//                val decl = resolveSymbols(typeNode.typeName, currentScope, true).getOrElse { error(it, typeNode); return it; }
+//                if (decl is DeclSymbol.ClassDecl) {
+//                    types.getDeclared(classDecl = decl, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
+//                } else if (decl is DeclSymbol.TypedefDecl) {
+//                    types.getTypeDef(decl.name, decl.canonicalType, isConst = typeNode.isConst, isVolatile = typeNode.isVolatile)
+//                } else return OpResult.failure("Invalid type name: ${typeNode.typeName.name}", typeNode.typeName)
+//            }
+//
+//            is FunctionTypeNode -> {
+//                val functionDeduce = nonRefDeduce as? SemanticType.Function
+//
+//                val returnType = resolveType(
+//                    typeNode.returnType,
+//                    currentScope,
+//                    functionDeduce?.returnType,
+//                    isByValue = true
+//                ).getOrElse { return it }
+//
+//                val resolvedParams = mutableListOf<SemanticType>()
+//                for ((index, paramNode) in typeNode.params.withIndex()) {
+//                    val paramDeduce = functionDeduce?.params?.getOrNull(index)
+//
+//                    val paramType =
+//                        resolveType(paramNode.type, currentScope, paramDeduce, isByValue = true).getOrElse { return it }
+//                    resolvedParams.add(paramType)
+//                }
+//
+//                types.getFunction(returnType = returnType, params = resolvedParams, qualifiers = typeNode.qualifiers)
+//            }
+//
+//            is MemberPointerTypeNode -> {
+//                val decl = resolveSymbols(typeNode.parentId, currentScope, true).getOrElse { return it }
+//                if (decl !is DeclSymbol.ClassDecl) {
+//                    return OpResult.failure("Invalid class name for member pointer: ${typeNode.parentId}", typeNode)
+//                }
+//
+//                val innerDeduce = (nonRefDeduce as? SemanticType.MemberPointer)?.pointee
+//                val memberType =
+//                    resolveType(typeNode.type, currentScope, innerDeduce, isByValue = false).getOrElse { return it }
+//
+//                types.getMemberPointer(
+//                    classDecl = decl,
+//                    pointee = memberType,
+//                    isConst = typeNode.isConst,
+//                    isVolatile = typeNode.isVolatile
+//                )
+//            }
+//
+//            is ErrorTypeNode -> {
+//                types.getError();
+//            }
+//        }
+//
+//        typeNode.resolvedType = semanticType
+//        return OpResult.success(semanticType)
+    }
+
+    private fun ensureReferenceBase(base: SemanticType, location: SourceLocation) {
+        if (base is SemanticType.RValueReference || base is SemanticType.Reference) {
+            error("Reference to reference is forbidden", location = location)
+        } else if (base.isPrimitive(PrimitiveTypeKind.VOID)) {
+            error("Reference to void type is forbidden", location= location)
         }
     }
 
@@ -684,9 +903,9 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         onlyImplicit: Boolean
     ): Set<ViableCandidate<DeclSymbol.ConstructorDecl>> {
         var ctor = classDecl.scope.lookupLocal(".ctor", true).getOrNull() as? DeclSymbol.ConstructorDecl
-        if (!(!onlyImplicit || ctor?.isExplicit == true)) {
-            ctor = null;
-        }
+//        if (!(!onlyImplicit || ctor?.isExplicit == true)) {
+//            ctor = null;
+//        }
         return findBestMatch(listOfNotNull(ctor), params)
     }
 
@@ -1048,7 +1267,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
                         currentType = types.getPointer(toFun, canonCurrent.isConst, canonCurrent.isVolatile);
                         canonCurrent = currentType.canonical
                         seq += ConversionStep(ConversionKind.FUNCTION_PTR_CONVERSION, currentVC, currentType)
-                    } else if (fromFun.qualifiers.isNoExcept != toFun.qualifiers.isNoExcept) {
+                    } else if (fromFun.qualifiers.noExceptSpec != toFun.qualifiers.noExceptSpec) {
                         return null
                     }
                 } else return null
@@ -1295,4 +1514,97 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         val baseType: SemanticType
     )
 
+}
+class BuiltinTypeBuilder(val types: TypeContext) {
+    var baseType: PrimitiveTypeKind? = null
+    var isSigned: Boolean = false
+    var isUnsigned: Boolean = false
+    var shortCount: Int = 0
+    var longCount: Int = 0
+
+    fun processKeyword(kw: Keyword, location: SourceLocation): OpResult<Unit> {
+        when (kw) {
+            Keyword.VOID -> return setBase(PrimitiveTypeKind.VOID, location)
+            Keyword.BOOL -> return setBase(PrimitiveTypeKind.BOOL, location)
+            Keyword.CHAR -> return setBase(PrimitiveTypeKind.CHAR, location)
+            Keyword.CHAR8_T -> return setBase(PrimitiveTypeKind.CHAR8_T, location)
+            Keyword.CHAR16_T -> return setBase(PrimitiveTypeKind.CHAR16_T, location)
+            Keyword.CHAR32_T -> return setBase(PrimitiveTypeKind.CHAR32_T, location)
+            Keyword.WCHAR_T -> return setBase(PrimitiveTypeKind.WCHAR_T, location)
+            Keyword.INT -> return setBase(PrimitiveTypeKind.INT, location)
+            Keyword.FLOAT -> return setBase(PrimitiveTypeKind.FLOAT, location)
+            Keyword.DOUBLE -> return setBase(PrimitiveTypeKind.DOUBLE, location)
+            Keyword.SIGNED -> {
+                if (isUnsigned) return OpResult.failure("Cannot combine 'signed' and 'unsigned'", location)
+                isSigned = true
+            }
+            Keyword.UNSIGNED -> {
+                if (isSigned) return OpResult.failure("Cannot combine 'signed' and 'unsigned'", location)
+                isUnsigned = true
+            }
+            Keyword.SHORT -> {
+                if (++shortCount > 1) return OpResult.failure("Duplicate 'short'", location)
+            }
+            Keyword.LONG -> {
+                if (++longCount > 2) return OpResult.failure("'long long long' is too long for C++", location)
+            }
+            else -> return OpResult.failure("Not a type keyword: $kw", location)
+        }
+        return OpResult.success(Unit)
+    }
+
+    private fun setBase(type: PrimitiveTypeKind, location: SourceLocation): OpResult<Unit> {
+        if (baseType != null) {
+            return OpResult.failure("Cannot combine primitive type '$baseType' with '$type'", location)
+        }
+        baseType = type
+        return OpResult.success(Unit)
+    }
+
+    fun build(location: SourceLocation): OpResult<SemanticType> {
+        if (shortCount > 0 && longCount > 0) {
+            return OpResult.failure("Cannot combine 'short' and 'long'", location)
+        }
+
+        val effectiveBase = baseType ?: if (isSigned || isUnsigned || shortCount > 0 || longCount > 0) {
+            PrimitiveTypeKind.INT
+        } else {
+            return OpResult.failure("Missing base type specifier", location)
+        }
+
+        if ((isSigned || isUnsigned) && effectiveBase !in listOf(PrimitiveTypeKind.INT, PrimitiveTypeKind.CHAR)) {
+            return OpResult.failure("'signed'/'unsigned' can only be used with 'int' or 'char'", location)
+        }
+        if (shortCount > 0 && effectiveBase != PrimitiveTypeKind.INT) {
+            return OpResult.failure("'short' can only be used with 'int'", location)
+        }
+        if (longCount > 0 && effectiveBase !in listOf(PrimitiveTypeKind.INT, PrimitiveTypeKind.DOUBLE)) {
+            return OpResult.failure("'long' can only be used with 'int' or 'double'", location)
+        }
+
+        val semanticType = when (effectiveBase) {
+            PrimitiveTypeKind.VOID -> types.void;
+            PrimitiveTypeKind.BOOL -> types.bool
+            PrimitiveTypeKind.FLOAT -> types.float
+            PrimitiveTypeKind.CHAR -> when {
+                isUnsigned -> types.uChar
+                isSigned -> types.sChar
+                else -> types.char
+            }
+            PrimitiveTypeKind.DOUBLE -> if (longCount == 1) types.longDouble else types.double
+            PrimitiveTypeKind.INT -> when {
+                shortCount == 1 -> if (isUnsigned) types.uShort else types.short
+                longCount == 1 -> if (isUnsigned) types.uLong else types.long
+                longCount == 2 -> if (isUnsigned) types.uLongLong else types.longLong
+                else -> if (isUnsigned) types.uInt else types.int
+            }
+            PrimitiveTypeKind.CHAR8_T -> types.char8_t
+            PrimitiveTypeKind.CHAR16_T -> types.char16_t
+            PrimitiveTypeKind.CHAR32_T -> types.char32_t
+            PrimitiveTypeKind.WCHAR_T -> types.wchar_t
+            else -> return OpResult.failure("Invalid primitive type: $effectiveBase", location);
+        }
+
+        return OpResult.success(semanticType)
+    }
 }
