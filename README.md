@@ -62,11 +62,12 @@ The compiler is divided into several logical stages:
 ```bash
 mvn clean install
 ```
+Add `-Djavacpp.platform` to specify the target platform (e.g., linux-x86_64) 
 
 ### Usage
 You can run the compiler via the command line:
 ```bash
-java -jar target/UrsaCompiler.jar compile source.cpp --emit-BIN -o output
+java -jar UrsaCompiler.jar -i inFilePath -o outFilePath compile
 ```
 
 *   `--emit-IR`: Dumps the generated LLVM IR.
@@ -77,6 +78,3 @@ java -jar target/UrsaCompiler.jar compile source.cpp --emit-BIN -o output
 ## Contributing
 
 As this is a personal project intended for learning and exploration, it is currently in an early state. However, feedback and discussions on compiler architecture are always welcome.
-
-## License
-[Insert your license here, e.g., MIT]
