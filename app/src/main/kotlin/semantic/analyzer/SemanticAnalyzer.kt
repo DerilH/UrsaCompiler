@@ -19,6 +19,7 @@ import org.derilh.analyzer.ForStmtAnalyzer
 import org.derilh.analyzer.GlobalScope
 import org.derilh.analyzer.IfStmtAnalyzer
 import org.derilh.analyzer.IntLiteralAnalyzer
+import org.derilh.analyzer.LinkageSpecAnalyzer
 import org.derilh.analyzer.MemberAccessExprAnalyzer
 import org.derilh.analyzer.NamespaceDeclAnalyzer
 import org.derilh.analyzer.NodeAnalyzer
@@ -76,6 +77,7 @@ import org.derilh.ast.ParameterNode
 import org.derilh.ast.RecoveryExpressionNode
 import org.derilh.ast.RecoveryStatementNode
 import org.derilh.ast.ForStatementNode
+import org.derilh.ast.LinkageSpecificationNode
 import org.derilh.ast.RefQualifier
 import org.derilh.ast.ReturnStatementNode
 import org.derilh.ast.SimpleTypeSpecifier
@@ -87,6 +89,7 @@ import org.derilh.ast.WhileStatementNode
 import org.derilh.core.ConversionKind
 import org.derilh.core.FunctionQualifiers
 import org.derilh.core.Keyword
+import org.derilh.core.LinkageType
 import org.derilh.core.OpResult
 import org.derilh.core.Operator
 import org.derilh.core.Options
@@ -108,12 +111,13 @@ import org.derilh.semantic.TypeContext
 import org.derilh.semantic.isFunctionPointer
 import org.derilh.semantic.isPrimitive
 import org.derilh.core.target.TargetInfo
-import org.derilh.main
+import org.derilh.app.main
 import org.derilh.util.ErrorHelper
 import org.derilh.util.ErrorHelper.Companion.getStackTrace
 import semantic.Declarator
 import semantic.DeclaratorChunk
 import java.math.BigInteger
+import java.util.Stack
 import kotlin.collections.mapNotNullTo
 import kotlin.collections.plusAssign
 import kotlin.reflect.KClass
@@ -129,6 +133,12 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
     override var switchDepth: Int = 0
     private var innerRootScope: Scope? = null;
     private var innerScope: Scope? = null
+    override val linkageStack = Stack<LinkageType>();
+    override val currentLinkage: LinkageType?
+        get() {
+            return if(linkageStack.isEmpty()) null else linkageStack.peek()
+        }
+
     private val problems: Map<ProblemLevel, MutableList<SemanticProblem>> = buildMap {
         for (level in ProblemLevel.entries) {
             this[level] = mutableListOf()
@@ -177,6 +187,7 @@ class SemanticAnalyzer(val options: Options) : AnalyzeContext {
         ArrayAccessNode::class to ArrayAccessAnalyzer(),
         TypeDefStatementNode::class to TypeDefStmtAnalyzer(),
         ForStatementNode::class to ForStmtAnalyzer(),
+        LinkageSpecificationNode::class to LinkageSpecAnalyzer(),
 
         RecoveryExpressionNode::class to RecoveryAnalyzer(),
         RecoveryStatementNode::class to RecoveryAnalyzer()

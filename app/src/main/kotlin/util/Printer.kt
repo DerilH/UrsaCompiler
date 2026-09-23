@@ -293,8 +293,8 @@ class Printer(val source: String) {
         stringBuilder.appendLine(prefix + connector + nodeColor + nodeString + ANSI_RESET)
 
         val childPrefix = prefix + if (isLast) "    " else "│   "
-        children.forEachIndexed { index, child ->
-            child.printAst(prefix = childPrefix, isLast = index == children.lastIndex, stringBuilder)
+        this.children.forEachIndexed { index: Int, child: IASTNode ->
+            child.printAst(prefix = childPrefix, isLast = index == this.children.lastIndex, stringBuilder)
         }
     }
 }

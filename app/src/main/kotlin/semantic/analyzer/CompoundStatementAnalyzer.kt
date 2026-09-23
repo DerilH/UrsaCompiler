@@ -11,10 +11,6 @@ import org.derilh.semantic.SemanticType
 class CompoundStatementAnalyzer : NodeAnalyzer<CompoundStatementNode> {
     override fun analyze(node: CompoundStatementNode, ctx: AnalyzeContext): ASTNode {
         val ownerFun = ctx.scope.findCurrentFunction()
-        if (ownerFun == null) {
-            ctx.error("Compound statement outside of function", node)
-            return node;
-        }
         val returns = mutableListOf<ReturnStatementNode>()
 
         for (child in node.statements) {

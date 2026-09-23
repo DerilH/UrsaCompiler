@@ -18,9 +18,12 @@ import org.derilh.core.AccessSpecifier
 import org.derilh.core.ICVQualifier
 import org.derilh.core.INoExceptSpecifier
 import org.derilh.core.IRefQualifier
+import org.derilh.core.LinkageType
 import org.derilh.core.OpResult
 import org.derilh.core.Options
+import org.derilh.core.asSuccess
 import org.derilh.core.getAsOrElse
+import org.derilh.core.getOrElse
 import org.derilh.core.getOrNull
 import org.derilh.core.ifFailure
 import org.derilh.core.isSuccess
@@ -161,7 +164,8 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         }
 
         if (declarators.size == 1 && declarators.first().isFunctionDeclarator()) {
-            return tryParseFunctionDefinition(spec, declarators.first());
+            val v = tryParseFunctionDefinition(spec, declarators.first());
+            if (v != null) return v;
         }
 
         val list = if (spec.isTypedef) {
@@ -208,7 +212,6 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             return null;
         }
 
-
         val isCtor = declarators.id.name == classDecl?.name;
         val decl = if (isCtor) DeclSymbol.constructorDecl(declarators.id.name, classDecl, funDeclarator.functionQualifiers, defaultParamCount)
         else DeclSymbol.FunctionDecl(declarators.id.name, sema.scope.ownerSymbol, funDeclarator.functionQualifiers, classDecl != null, isBuiltin = false, defaultParamCount)
@@ -222,6 +225,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
             FunctionDeclarationNode(spec, declarators, declarators.id.location);
         }
 
+        parseSeparator(false);
 
         decl.astNode = node;
         node.functionDecl = decl
@@ -681,7 +685,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
                 RecoveryExpressionNode(currentToken().location),
                 Operator.PLUS,
                 left.location!!
-            ) // dummy
+            )
         }
         val operator = currentToken() as OperatorToken;
         if (!operator.value.isBinary) {
@@ -714,56 +718,13 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         return expressions[0]!!.location!!.copy(length = length)
     }
 
-//    private fun isTypeToken(): Boolean {
-//        val basePos = position;
-//        val baseProblems = problems.mapValues { it.value.size }
-//        var isType = false;
-//        try {
-//            parseDeclSpecifierSeq()
-//            isType = problems.all { (level, list) -> list.size == baseProblems[level] }
-//        } catch (e: Exception) {
-//            isType = false
-//        } finally {
-//            // Rollback problems added during speculative parsing
-//            problems.forEach { (level, list) ->
-//                val prevSize = baseProblems[level] ?: 0
-//                while (list.size > prevSize) {
-//                    list.removeAt(list.size - 1)
-//                }
-//            }
-//        }
-//        position = basePos;
-//        return isType
-//    }
-
-//    private fun tryParseType(): TypeNode? {
-//        val basePos = position;
-//        val baseProblems = problems.mapValues { it.value.size }
-//        try {
-//            val type = parseDeclSpecifierSeq()
-//            if (problems.all { (level, list) -> list.size == baseProblems[level] }) {
-//                return type
-//            }
-//        } catch (e: Exception) {
-//        }
-//        // Rollback problems
-//        problems.forEach { (level, list) ->
-//            val prevSize = baseProblems[level] ?: 0
-//            while (list.size > prevSize) {
-//                list.removeAt(list.size - 1)
-//            }
-//        }
-//        position = basePos;
-//        return null;
-//    }
-
     private fun tryParseStorageClassSpec(): StorageClassSpecifier? {
         val tok = currentToken()
         return when {
-            tok isA Keyword.EXTERN -> StorageClassSpecifier.Extern(tok.location)
-            tok isA Keyword.STATIC -> StorageClassSpecifier.Static(tok.location)
-            tok isA Keyword.THREAD_LOCAL -> StorageClassSpecifier.ThreadLocal(tok.location)
-            tok isA Keyword.MUTABLE -> StorageClassSpecifier.Mutable(tok.location)
+            consume(Keyword.EXTERN, false) -> StorageClassSpecifier.Extern(tok.location)
+            consume(Keyword.STATIC, false) -> StorageClassSpecifier.Static(tok.location)
+            consume(Keyword.THREAD_LOCAL, false) -> StorageClassSpecifier.ThreadLocal(tok.location)
+            consume(Keyword.MUTABLE, false) -> StorageClassSpecifier.Mutable(tok.location)
             else -> null
         }
     }
@@ -1318,6 +1279,7 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         declSpec: DeclSpecifierSeq,
         declarator: Declarator
     ): StatementNode? {
+        if (currentToken() notA Symbol.BEGIN) return null;
         val location = currentToken().location
 
         val declaration = parseFunctionDeclaration(declSpec, declarator) ?: return null
@@ -1498,12 +1460,28 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
 
     private fun tryParseDeclarationOrDefinition(): StatementNode {
         val token = currentToken()
-        return tryParseSimpleDeclOrFunctionDef() ?: run {
+        return tryParseLinkageSpecification() ?: tryParseSimpleDeclOrFunctionDef() ?: run {
             when {
                 token isA Keyword.NAMESPACE -> parseNamespaceDefinition(token.location)
                 else -> EmptyStatementNode
             }
         }
+    }
+
+    private fun tryParseLinkageSpecification(): LinkageSpecificationNode? {
+        if (!consume(Keyword.EXTERN, false)) return null;
+        val linkageToken = currentToken() as? StringLiteralToken ?: return null;
+        val linkage = resolveLinkage(linkageToken.stringValue).getOrElse { error("Unknown linkage language", linkageToken); LinkageType.CPP };
+        position++;
+
+        val a = if (currentToken() isA Symbol.BEGIN) {
+            parseBlock();
+        } else {
+            val decl = tryParseDeclarationOrDefinition();
+            if(decl is EmptyStatementNode) return null;
+            CompoundStatementNode(listOf(decl), currentToken().location)
+        }
+        return LinkageSpecificationNode(linkage,a, currentToken().location);
     }
 
     private fun consume(op: Operator, strict: Boolean = true): Boolean {
@@ -1880,6 +1858,14 @@ class Parser(var tokens: List<Token>, val sema: SemanticAnalyzer, val options: O
         } else {
             spec.classDecl = classDecl;
             classDecl;
+        }
+    }
+
+    fun resolveLinkage(name: String): OpResult<LinkageType> {
+        return when (name) {
+            "C++" -> LinkageType.CPP.asSuccess
+            "C" -> LinkageType.C.asSuccess
+            else -> OpResult.failure("Unknown linkage type '$name'")
         }
     }
 }

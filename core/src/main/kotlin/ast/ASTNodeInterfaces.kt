@@ -279,6 +279,9 @@ interface IAccessSpecifierNode : IASTNode {
     val specifier: AccessSpecifier
 }
 
+interface ILinkageSpecificationNode : IDeclarationNode {
+}
+
 interface IRootNode : IASTNode {
     val declarations: List<IASTNode>
 }

@@ -4,6 +4,7 @@ import org.derilh.ast.ASTNode
 import org.derilh.ast.DeclSpecifierSeq
 import org.derilh.ast.ExpressionNode
 import org.derilh.ast.IdentifierNode
+import org.derilh.core.LinkageType
 import org.derilh.core.Operator
 import org.derilh.core.PrimitiveTypeKind
 import org.derilh.core.OpResult
@@ -18,6 +19,7 @@ import org.derilh.semantic.analyzer.ViableCandidate
 import org.derilh.core.target.TargetInfo
 import semantic.Declarator
 import java.math.BigInteger
+import java.util.Stack
 
 interface AnalyzeContext {
     var anonymousIdCounter: Int;
@@ -28,6 +30,8 @@ interface AnalyzeContext {
     var idContext: IdContext;
     var loopDepth: Int;
     var switchDepth: Int;
+    val linkageStack: Stack<LinkageType>;
+    val currentLinkage: LinkageType?
 
     fun enterScope(owner: Scope)
     fun enterScope()

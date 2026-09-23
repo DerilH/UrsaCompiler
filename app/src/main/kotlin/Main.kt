@@ -1,5 +1,4 @@
-package org.derilh
-
+package org.derilh.app
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.core.UsageError
 import com.github.ajalt.clikt.core.findOrSetObject

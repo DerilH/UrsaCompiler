@@ -15,13 +15,22 @@ import org.derilh.semantic.SemanticType
 import org.derilh.semantic.isDeclared
 import org.derilh.semantic.isPointer
 import org.derilh.semantic.isPrimitive
+import run.EmitFormat
 import java.math.BigInteger
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.*
 
 class LLVMIRModule(val llvmTarget: LLVMTargetInfo, val module: LLVMModuleRef) : IIRModule {
-    override fun compileTo(outputFileName: String): Boolean {
+    override fun compileTo(outputFileName: String, emitFormat: EmitFormat): Boolean {
+        return when(emitFormat) {
+            EmitFormat.IR -> emitIRTo(outputFileName);
+            EmitFormat.ASM -> compileTo(outputFileName, LLVMAssemblyFile)
+            EmitFormat.BINARY -> compileTo(outputFileName, LLVMObjectFile)
+        }
+    }
+
+    private fun compileTo(outputFileName: String, codegen: Int): Boolean {
         val verifyErr = PointerPointer<BytePointer>(1)
 
         if (LLVMVerifyModule(module, LLVMPrintMessageAction, verifyErr) != 0) {
@@ -34,11 +43,12 @@ class LLVMIRModule(val llvmTarget: LLVMTargetInfo, val module: LLVMModuleRef) : 
         val outputFile = BytePointer(outputFileName)
         val emitErrorPtr = PointerPointer<BytePointer>(1)
 
+
         val result = LLVMTargetMachineEmitToFile(
             llvmTarget.target,
             module,
             outputFile,
-            LLVMObjectFile,
+            codegen,
             emitErrorPtr
         )
 
@@ -53,7 +63,19 @@ class LLVMIRModule(val llvmTarget: LLVMTargetInfo, val module: LLVMModuleRef) : 
         return true;
     }
 
-    override fun emitIRTo(outputFileName: String): Boolean {
+    override fun optimize(optLevel: String) {
+        val options = LLVMCreatePassBuilderOptions()
+
+        val error = LLVMRunPasses(module, "default<$optLevel>", null, options)
+
+        if (error != null) {
+            println("Error running passes: ${LLVMGetErrorMessage(error).string}")
+        }
+
+        LLVMDisposePassBuilderOptions(options)
+    }
+
+    private fun emitIRTo(outputFileName: String): Boolean {
         val verifyErr = PointerPointer<BytePointer>(1)
         if (LLVMVerifyModule(module, LLVMPrintMessageAction, verifyErr) != 0) {
             return false;
@@ -106,6 +128,15 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
             is ImplicitCastExpressionNode -> visitImplicitCast(ast);
             is IdExpressionNode -> visitIdExpr(ast);
             is VariableDeclarationNode -> getVarDecl(ast.varDecl);
+            is ParameterNode -> {
+                if(ast.decl is DeclSymbol.VariableDecl) {
+                    getVarDecl(ast.decl as DeclSymbol.VariableDecl);
+                } else if(ast.decl is DeclSymbol.FunctionDecl) {
+                    getFunctionRef(ast.decl as DeclSymbol.FunctionDecl);
+                } else {
+                    null
+                }
+            }
             is DeclarationSequenceNode -> visitDeclSeqNode(ast);
             is IfStatementNode -> visitIf(ast);
             is WhileStatementNode -> visitWhileStmt(ast)
@@ -126,7 +157,7 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
 
             is CompoundStatementNode -> visitCompoundStatementNode(ast);
             is NullptrLiteralNode -> visitNullptr(ast);
-
+            is LinkageSpecificationNode -> null;
             else -> throw IllegalArgumentException("Unsupported node: " + ast)
         }
     }
@@ -456,11 +487,11 @@ class LLVMIRBuilder(val options: Options) : IIRBuilder {
                 LLVMPositionBuilderAtEnd(builder, entryBlock)
                 currentFn = func;
 
+                val paramsAST = (decl.definitionNode as FunctionDefinitionNode).declaration.declarator.getFunctionDeclarator()!!.params;
                 for (i in decl.params.indices) {
-//                    val paramAST = ((decl.astNode as FunctionDeclarationNode).type as FunctionTypeNode).params[i].declarator as VariableDeclarationNode
-//                    val llvmParam = LLVMGetParam(func, i)
-//                    val alloca = generateIR(paramAST)
-//                    LLVMBuildStore(builder, llvmParam, alloca)
+                    val llvmParam = LLVMGetParam(func, i)
+                    val alloca = generateIR(paramsAST[i])
+                    LLVMBuildStore(builder, llvmParam, alloca)
                 }
 
 

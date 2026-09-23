@@ -9,6 +9,7 @@ import org.derilh.core.ConversionKind
 import org.derilh.core.CastMethod
 import org.derilh.core.CharPrefix
 import org.derilh.core.ClassType
+import org.derilh.core.LinkageType
 import org.derilh.core.Operator
 import org.derilh.core.Radix
 import org.derilh.core.SourceLocation
@@ -683,22 +684,6 @@ open class FunctionDeclarationNode(val declSpec: DeclSpecifierSeq, val declarato
     lateinit var resolvedType: SemanticType.Function;
 }
 
-//sealed class NamedDeclaratorNode(override val id: IdentifierNode, type: TypeNode, location: SourceLocation?) : DeclaratorNode(type, location), INamedDeclaratorNode {
-//    override val children: List<ASTNode>
-//        get() = super.children + id
-//}
-
-//class AbstractDeclaratorNode(type: TypeNode, override val initializer: ExpressionNode?, location: SourceLocation?) : DeclaratorNode(type, location), IAbstractDeclaratorNode
-//
-//class TypeDefDeclaratorNode(id: IdentifierNode, type: TypeNode, location: SourceLocation?) : NamedDeclaratorNode(id, type, location), ITypeDefDeclaratorNode {
-//    lateinit var decl: DeclSymbol.TypedefDecl;
-//}
-
-//sealed class DeclaratorNode(override var type: TypeNode, override val location: SourceLocation?) : ASTNode, IDeclaratorNode {
-//    override val children: List<ASTNode>
-//        get() = listOfNotNull(type)
-//}
-
 open class StatementNode(override val location: SourceLocation?) : ASTNode, IStatementNode {
     override val children: List<ASTNode> get() = emptyList()
 }
@@ -862,6 +847,11 @@ class AccessSpecifierNode(
 ) : ASTNode, IAccessSpecifierNode {
     override fun toString(): String = "AccessSpecifierNode(type='${specifier}')"
     override val children: List<ASTNode> = emptyList();
+}
+
+class LinkageSpecificationNode(val linkage: LinkageType, val body: CompoundStatementNode, location: SourceLocation) : DeclarationNode(location), ILinkageSpecificationNode {
+    override val children: List<ASTNode>
+        get() = listOf(body);
 }
 
 data class RootNode(

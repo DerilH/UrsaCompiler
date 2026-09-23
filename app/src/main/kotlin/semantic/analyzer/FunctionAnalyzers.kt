@@ -33,7 +33,6 @@ class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclarationNode> {
             return node;
         }
 
-
         val original = combineOverloads(node.overloadSet ?: return node, node.functionDecl, ctx)
         if(original != null) {
             node.functionDecl = original
@@ -47,22 +46,23 @@ class FunctionDeclAnalyzer : NodeAnalyzer<FunctionDeclarationNode> {
                 return node;
             }
         }
-        return ctx.withScope(node.functionDecl.scope) {
-            var hasDefault = false;
-            for (param in node.declarator.getFunctionDeclarator()!!.params) {
-                if(hasDefault && !param.hasDefaultValue) {
-                    ctx.error("Missing default value on parameter ${param.declarator?.id?.toDisplayString()}", node = param)
-                }
-                else hasDefault = hasDefault || param.hasDefaultValue;
-            }
-            checkMethodQualifiers(node.functionDecl, node.resolvedType.qualifiers, ctx)
-            node;
-        }.also {
-            val retType = node.functionDecl.returnType
-            if(retType is DeclaredType && !retType.isComplete) {
-                ctx.error("Function return type ${retType} is incomplete", location = node.location)
-            }
-        }
+//        return ctx.withScope(node.functionDecl.scope) {
+//            var hasDefault = false;
+//            for (param in node.declarator.getFunctionDeclarator()!!.params) {
+//                if(hasDefault && !param.hasDefaultValue) {
+//                    ctx.error("Missing default value on parameter ${param.declarator?.id?.toDisplayString()}", node = param)
+//                }
+//                else hasDefault = hasDefault || param.hasDefaultValue;
+//            }
+//            checkMethodQualifiers(node.functionDecl, node.resolvedType.qualifiers, ctx)
+//            node;
+//        }.also {
+//            val retType = node.functionDecl.returnType
+//            if(retType is DeclaredType && !retType.isComplete) {
+//                ctx.error("Function return type ${retType} is incomplete", location = node.location)
+//            }
+//        }
+//        return node;
         return node;
     }
 }
@@ -175,8 +175,7 @@ fun combineOverloads(overloadSet: DeclSymbol.FunctionOverloadSet,  functionDecl:
             }
         }
 
-        overloadSet.overloads.removeAll { it === functionDecl }
-
+        overloadSet.overloads.distinctBy { System.identityHashCode(it) }
 
         return firstDecl
     }

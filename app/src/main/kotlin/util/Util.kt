@@ -14,8 +14,8 @@ class Util {
                             '\t'.code -> append("\\t")
                             '\b'.code -> append("\\b")
                             '\\'.code -> append("\\\\")
+                            0 -> {}
                             else -> {
-                                // Для остальных непечатных/управляющих символов используем Unicode-формат \uXXXX
                                 if (Character.isISOControl(cp)) {
                                     append(String.format("\\u%04X", cp))
                                 } else {
