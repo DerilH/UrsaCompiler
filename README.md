@@ -45,11 +45,11 @@ The compiler is divided into several logical stages:
 ## Project Structure
 
 *   `core/`: Contains base interfaces for AST, Target info, and common utilities.
-*   `src/main/kotlin/lexer/`: Tokenization logic.
-*   `src/main/kotlin/ast/`: Parser implementation and AST node definitions.
-*   `src/main/kotlin/semantic/`: The complex logic for type checking and name resolution.
-*   `src/main/kotlin/ir/`: IR builders for both LLVM and the future internal IR.
-*   `src/main/kotlin/run/`: CLI implementation using Clikt.
+*   `app/src/main/kotlin/lexer/`: Tokenization logic.
+*   `app/src/main/kotlin/ast/`: Parser implementation and AST node definitions.
+*   `app/src/main/kotlin/semantic/`: The complex logic for type checking and name resolution.
+*   `app/src/main/kotlin/ir/`: IR builders for both LLVM and the future internal IR.
+*   `app/src/main/kotlin/run/`: CLI implementation using Clikt.
 
 ## Getting Started
 
